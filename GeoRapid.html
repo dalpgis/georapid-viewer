@@ -1,0 +1,2304 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GeoRapid by DALPGIS</title>
+
+  <!-- Leaflet -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- CSV/Excel -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <!-- Proyecciones / análisis -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+
+  <!-- Zip + Shapefile -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://unpkg.com/shpjs@latest/dist/shp.min.js"></script>
+
+  <!-- KML import -->
+  <script src="https://unpkg.com/@tmcw/togeojson@0.16.0/dist/togeojson.umd.js"></script>
+
+  <!-- Export KML -->
+  <script src="https://unpkg.com/tokml@0.4.0/tokml.js"></script>
+
+  <!-- Leaflet Draw -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+  <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+
+  <!-- Leaflet Measure -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-measure/dist/leaflet-measure.css" />
+  <script src="https://unpkg.com/leaflet-measure/dist/leaflet-measure.js"></script>
+
+  <style>
+    :root{
+      --dal-yellow:#E7C10B;
+      --dal-dark:#565859;
+      --dal-dark2:#2b2d31;
+      --dal-text:#eeeeee;
+      --dal-muted:#cfd3da;
+
+      --topbar-h: 58px;
+
+      --sidebar-w: 210px;
+      --sidebar-w-collapsed: 52px;
+
+      --sidebar-current-w: var(--sidebar-w-collapsed);
+      --bottom-panel-h: 260px;
+
+      --edge-gap: 10px;
+    }
+
+    html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; background: var(--dal-dark); }
+    #map { height: 100%; width: 100%; }
+
+    /* ========================= TOP BAR ========================= */
+    .topbar{
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: var(--topbar-h);
+      z-index: 10020;
+      background: var(--dal-yellow);
+      border-bottom: 2px solid rgba(0,0,0,0.15);
+      box-shadow: 0 10px 25px rgba(0,0,0,0.18);
+      display: flex;
+      align-items: center;
+    }
+    .topbar .inner{
+      width: 100%;
+      padding: 0 14px;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 10px;
+    }
+    .topbar .left,
+    .topbar .center,
+    .topbar .right{
+      display: flex;
+      align-items: center;
+    }
+    .topbar .left{ justify-content: flex-start; }
+    .topbar .center{ justify-content: center; }
+    .topbar .right{ justify-content: flex-end; }
+
+    .rapid-logo{
+      height: 40px;
+      width: auto;
+      display:block;
+      user-select:none;
+      -webkit-user-drag:none;
+      filter: drop-shadow(0 6px 10px rgba(0,0,0,0.18));
+    }
+    .topbar .app-title{
+      font-weight: 900;
+      letter-spacing: .02em;
+      color: #1a1a1a;
+      font-size: 14px;
+      text-transform: uppercase;
+      opacity: .9;
+      user-select:none;
+    }
+    .topbar .dal-link{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      text-decoration:none;
+      user-select:none;
+      cursor:pointer;
+      padding: 6px 10px;
+      border-radius: 12px;
+      background: rgba(0,0,0,0.08);
+      border: 1px solid rgba(0,0,0,0.10);
+    }
+    .topbar .dal-link:hover{
+      background: rgba(0,0,0,0.12);
+    }
+    .topbar .dal-link img{
+      height: 34px;
+      width:auto;
+      display:block;
+      user-select:none;
+      -webkit-user-drag:none;
+    }
+
+    /* ========================= RIGHT SIDEBAR ========================= */
+    .sidebar{
+      position: fixed;
+      top: calc(var(--topbar-h) + 10px);
+      right: var(--edge-gap);
+      left: auto;
+      bottom: calc(var(--bottom-panel-h) + var(--edge-gap));
+      z-index: 10010;
+
+      width: var(--sidebar-w);
+      overflow: hidden;
+
+      background: rgba(17, 17, 18, 0.78);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 16px;
+      box-shadow: 0 18px 45px rgba(0,0,0,0.38);
+      backdrop-filter: blur(10px);
+
+      display: flex;
+      flex-direction: column;
+      padding: 10px;
+      gap: 8px;
+    }
+    .sidebar.collapsed{
+      width: var(--sidebar-w-collapsed);
+      padding: 10px 8px;
+    }
+
+    .sbtn{
+      position: relative;
+      display:flex;
+      align-items:center;
+      gap:8px;
+      width: 100%;
+      padding: 9px 10px;
+
+      border-radius: 14px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.10);
+
+      color: var(--dal-text);
+      font-weight: 900;
+      font-size: 12px;
+      cursor: pointer;
+      user-select:none;
+      transition: .15s ease;
+      white-space: nowrap;
+    }
+    .sbtn:hover{ background: rgba(255,255,255,0.10); }
+
+    .sbtn .ico{
+      font-size: 14px;
+      width: 18px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      flex: 0 0 18px;
+      line-height: 1;
+    }
+    .sbtn .label{
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .sbtn.active{
+      background: rgba(231,193,11,0.18);
+      border-color: rgba(231,193,11,0.55);
+      color: #fff;
+      box-shadow: inset 0 0 0 1px rgba(231,193,11,0.22);
+    }
+
+    .sidebar .divider{
+      height: 1px;
+      background: rgba(255,255,255,0.10);
+      margin: 4px 0;
+    }
+
+    .sidebar .bottom-actions{
+      margin-top: auto;
+      display: grid;
+      gap: 8px;
+    }
+
+    .sidebar.collapsed .sbtn{
+      justify-content: center;
+      padding: 10px 8px;
+    }
+    .sidebar.collapsed .sbtn .label{ display:none; }
+
+    .sidebar.collapsed .sbtn[data-tooltip]::after{
+      content: attr(data-tooltip);
+      position: absolute;
+      right: calc(100% + 10px);
+      left: auto;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(20,20,22,0.92);
+      border: 1px solid rgba(255,255,255,0.10);
+      color: #fff;
+      padding: 7px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 900;
+      opacity: 0;
+      pointer-events: none;
+      white-space: nowrap;
+      box-shadow: 0 14px 30px rgba(0,0,0,0.35);
+      transition: .12s ease;
+    }
+    .sidebar.collapsed .sbtn:hover::after{ opacity: 1; }
+
+    /* ========================= FLOATING PANELS ========================= */
+    .panel{
+      position: absolute;
+      top: calc(var(--topbar-h) + 14px);
+      right: calc(var(--edge-gap) + var(--sidebar-current-w) + var(--edge-gap));
+      z-index: 9998;
+      width: 420px;
+      max-width: calc(100vw - 24px);
+      max-height: calc(100vh - 310px);
+      overflow: hidden;
+      background: rgba(30, 30, 34, 0.92);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 16px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.45);
+      backdrop-filter: blur(10px);
+      display: none;
+      resize: both;
+      min-width: 320px;
+      min-height: 120px;
+    }
+    .panel.open{ display:block; }
+    .panel.collapsed{ height: 46px !important; min-height: 46px !important; resize: none; }
+    .panel.collapsed .pc{ display:none; }
+
+    .panel .ph{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      cursor: grab;
+      user-select:none;
+    }
+    .panel.dragging .ph{ cursor: grabbing; }
+    .panel .ph b{
+      color: var(--dal-yellow);
+      display:flex;
+      align-items:center;
+      gap:8px;
+      font-size: 13px;
+    }
+    .draghint{
+      width: 14px;
+      height: 14px;
+      opacity:.75;
+      display:inline-block;
+      background:
+        radial-gradient(circle, rgba(255,255,255,.55) 2px, transparent 3px) 0 0/7px 7px,
+        radial-gradient(circle, rgba(255,255,255,.55) 2px, transparent 3px) 7px 7px/7px 7px;
+      border-radius: 4px;
+    }
+    .panel .ph .ph-actions{ display:flex; gap:8px; align-items:center; }
+    .ph-btn{
+      background: rgba(255,255,255,0.08);
+      border:1px solid rgba(255,255,255,0.10);
+      padding: 6px 10px;
+      border-radius: 10px;
+      color:#fff;
+      font-size: 12px;
+      cursor: pointer;
+      user-select:none;
+    }
+    .ph-btn:hover{ background: rgba(255,255,255,0.12); }
+    .panel .pc{
+      padding: 12px;
+      color: var(--dal-text);
+      overflow: auto;
+      max-height: calc(100vh - 370px);
+    }
+
+    /* Leaflet controls */
+    .leaflet-top.leaflet-left{
+      top: calc(var(--topbar-h) + 14px) !important;
+      left: 10px !important;
+    }
+    .leaflet-control-zoom {
+      border: 1px solid rgba(255,255,255,0.18) !important;
+      box-shadow: 0 10px 20px rgba(0,0,0,0.35) !important;
+    }
+    .leaflet-control-zoom a{
+      background: rgba(20,20,20,0.8) !important;
+      color: #fff !important;
+      border-bottom: 1px solid rgba(255,255,255,0.15) !important;
+    }
+    .leaflet-control-zoom a:hover{ background: rgba(231,193,11,0.25) !important; }
+
+    /* ========================= BOTTOM PANEL ========================= */
+    .bottom{
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      bottom: 10px;
+      z-index: 9997;
+      background: rgba(20, 20, 22, 0.92);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 16px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.50);
+      backdrop-filter: blur(10px);
+      overflow: hidden;
+      height: 260px;
+      display: flex;
+      flex-direction: column;
+    }
+    .bottom.hidden { display:none; }
+    .bottom.expanded { height: 60vh; }
+
+    .bottom .bh{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      justify-content:space-between;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .bottom .tabs{ display:flex; gap:8px; align-items:center; }
+
+    .tabbtn{
+      padding: 7px 10px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.06);
+      border:1px solid rgba(255,255,255,0.08);
+      color: var(--dal-text);
+      font-size: 12px;
+      font-weight: 900;
+      user-select:none;
+    }
+    .tabbtn.active{
+      background: rgba(231,193,11,0.18);
+      border-color: rgba(231,193,11,0.45);
+    }
+    .bottom .actions{ display:flex; align-items:center; gap:8px; }
+
+    .mini{
+      padding: 7px 10px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.06);
+      border:1px solid rgba(255,255,255,0.08);
+      color: var(--dal-text);
+      font-size: 12px;
+      font-weight: 900;
+      user-select:none;
+      cursor:pointer;
+    }
+    .mini:hover{ background: rgba(255,255,255,0.10); }
+    .mini.yellow{ background: rgba(231,193,11,0.20); border-color: rgba(231,193,11,0.45); }
+
+    .bottom .bc{ flex:1; min-height:0; display:flex; flex-direction:column; }
+    .bottom .toolbar{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      flex-wrap: wrap;
+    }
+
+    .input, .select{
+      background: rgba(255,255,255,0.06);
+      border:1px solid rgba(255,255,255,0.10);
+      border-radius: 10px;
+      padding: 8px 10px;
+      color: #fff;
+      font-size: 12px;
+      outline:none;
+    }
+    .input::placeholder{ color: rgba(255,255,255,0.45); }
+
+    .tablewrap{ flex:1; min-height:0; overflow:auto; padding: 0 12px 12px 12px; }
+    table { width:100%; border-collapse: collapse; font-size: 12px; }
+    thead th{
+      position: sticky;
+      top: 0;
+      background: rgba(40, 40, 44, 0.95);
+      color: var(--dal-yellow);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      font-size: 11px;
+      border-bottom: 1px solid rgba(255,255,255,0.10);
+      padding: 10px 8px;
+      text-align:left;
+      white-space: nowrap;
+    }
+    tbody td{
+      padding: 8px 8px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.88);
+      white-space: nowrap;
+      max-width: 380px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    tbody tr:hover{ background: rgba(255,255,255,0.06); }
+
+    .logline{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 12px;
+      padding: 6px 0;
+      border-bottom: 1px dashed rgba(255,255,255,0.08);
+    }
+    .logline b{ color: var(--dal-yellow); }
+
+    .note{
+      font-size: 12px;
+      color: rgba(255,255,255,0.70);
+      background: rgba(231,193,11,0.08);
+      border: 1px solid rgba(231,193,11,0.25);
+      padding: 10px 12px;
+      border-radius: 14px;
+    }
+
+    /* Modal XY */
+    #xyModal .select, #xyModal .input{ width:100%; }
+
+    /* ========================= ✅ FAB: mostrar tabla cuando está oculta ========================= */
+    .fab-show-bottom{
+      position: fixed;
+      bottom: 14px;
+      right: calc(var(--edge-gap) + var(--sidebar-current-w) + var(--edge-gap));
+      z-index: 10015;
+      display: none;
+      align-items: center;
+      gap: 10px;
+
+      background: rgba(20,20,22,0.92);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 999px;
+      padding: 10px 12px;
+      box-shadow: 0 18px 45px rgba(0,0,0,0.45);
+      backdrop-filter: blur(10px);
+
+      color: #fff;
+      font-weight: 900;
+      font-size: 12px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .fab-show-bottom:hover{
+      background: rgba(255,255,255,0.10);
+      border-color: rgba(231,193,11,0.35);
+    }
+    .fab-show-bottom .dot{
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(231,193,11,0.95);
+      box-shadow: 0 0 0 3px rgba(231,193,11,0.18);
+    }
+    .fab-show-bottom.show{ display:flex; }
+  </style>
+</head>
+
+<body>
+  <div id="map"></div>
+
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <div class="inner">
+      <div class="left">
+        <img class="rapid-logo" src="https://i.postimg.cc/W30Yk0DK/georapid-vertical.png" alt="GeoRapid Logo" />
+      </div>
+      <div class="center">
+        <div class="app-title">Visualización rápida + análisis</div>
+      </div>
+      <div class="right">
+        <a class="dal-link" href="https://dalpgis.com/" target="_blank" rel="noopener noreferrer" title="Ir a dalpgis.com">
+          <img src="https://i.postimg.cc/7hycsK8Y/LOGO-ORIGINAL-2.png" alt="DALPGIS" />
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- ✅ SIDEBAR (DERECHA) -->
+  <aside class="sidebar collapsed" id="sidebar">
+    <button class="sbtn" data-panel="pDatos" data-tooltip="Datos" title="Datos">
+      <span class="ico">📁</span><span class="label">Datos</span>
+    </button>
+    <button class="sbtn" data-panel="pTools" data-tooltip="Herramientas" title="Herramientas">
+      <span class="ico">🛠️</span><span class="label">Herramientas</span>
+    </button>
+    <button class="sbtn" data-panel="pExport" data-tooltip="Exportar" title="Exportar">
+      <span class="ico">⬇️</span><span class="label">Exportar</span>
+    </button>
+    <button class="sbtn" data-panel="pBase" data-tooltip="Base" title="Mapa base">
+      <span class="ico">🗺️</span><span class="label">Base</span>
+    </button>
+    <button class="sbtn" data-panel="pLayers" data-tooltip="Capas" title="Capas">
+      <span class="ico">🗂️</span><span class="label">Capas</span>
+    </button>
+
+    <div class="divider"></div>
+
+    <button class="sbtn" id="btnLogs" data-tooltip="Logs" title="Logs">
+      <span class="ico">🧾</span><span class="label">Logs</span>
+    </button>
+    <button class="sbtn" id="btnReset" data-tooltip="Reiniciar" title="Reiniciar sesión">
+      <span class="ico">♻️</span><span class="label">Reiniciar</span>
+    </button>
+
+    <div class="bottom-actions">
+      <button class="sbtn" id="btnSidebarToggle" data-tooltip="Expandir/Colapsar" title="Expandir/Colapsar">
+        <span class="ico">↔️</span><span class="label">Expandir</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ✅ FAB para re-abrir tabla cuando está oculta -->
+  <button id="btnShowBottom" class="fab-show-bottom" title="Mostrar tabla de atributos">
+    <span class="dot"></span>
+    <span>Mostrar tabla</span>
+  </button>
+
+  <!-- PANELS -->
+  <div class="panel" id="pDatos" data-dock="right">
+    <div class="ph">
+      <b><span class="draghint"></span> Datos</b>
+      <div class="ph-actions">
+        <button class="ph-btn" onclick="toggleCollapse('pDatos')">—</button>
+        <button class="ph-btn" onclick="dockPanel('pDatos')">📌</button>
+        <button class="ph-btn" onclick="closePanel('pDatos')">✕</button>
+      </div>
+    </div>
+    <div class="pc space-y-4">
+      <div class="note">
+        <b>Tip:</b> Puedes cargar múltiples capas. Soporta: <b>GeoJSON</b>, <b>ArcGIS JSON</b>, <b>KML</b>, <b>KMZ</b>, <b>Shapefile .zip</b>, <b>CSV</b>, <b>Excel</b>.
+      </div>
+      <div class="flex flex-col md:flex-row gap-3 items-start md:items-center">
+        <input id="fileInput" type="file" multiple class="input w-full md:w-[520px]"
+          accept=".geojson,.json,.kml,.kmz,.zip,.csv,.xlsx,.xls" />
+        <button class="mini yellow" onclick="loadExample()">Cargar ejemplo</button>
+      </div>
+      <div class="text-sm text-white/70">
+        Si el archivo es <b>CSV/Excel</b>, GeoRapid intentará detectar automáticamente <i>lat/lon</i>. Si no las detecta, te mostrará un selector.
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="pTools" data-dock="right">
+    <div class="ph">
+      <b><span class="draghint"></span> Herramientas</b>
+      <div class="ph-actions">
+        <button class="ph-btn" onclick="toggleCollapse('pTools')">—</button>
+        <button class="ph-btn" onclick="dockPanel('pTools')">📌</button>
+        <button class="ph-btn" onclick="closePanel('pTools')">✕</button>
+      </div>
+    </div>
+    <div class="pc space-y-5">
+      <div class="grid md:grid-cols-2 gap-4">
+        <div class="p-4 rounded-2xl border border-white/10 bg-white/5 space-y-3">
+          <div class="flex items-center justify-between">
+            <b class="text-white">Medición</b>
+            <button class="mini" id="btnMeasure">Activar</button>
+          </div>
+          <div class="text-sm text-white/70">Activa/desactiva el control de medición (distancia/área).</div>
+        </div>
+
+        <div class="p-4 rounded-2xl border border-white/10 bg-white/5 space-y-3">
+          <div class="flex items-center justify-between">
+            <b class="text-white">Selección (Dibujar)</b>
+            <button class="mini" id="btnSelectDraw">Activar</button>
+          </div>
+          <div class="text-sm text-white/70">Dibuja un polígono para seleccionar features (intersección) de una capa.</div>
+          <div class="flex gap-2 items-center">
+            <select id="selSelectLayer" class="select w-full">
+              <option value="">(elige capa)</option>
+            </select>
+            <button class="mini" onclick="clearSelection()">Limpiar</button>
+          </div>
+        </div>
+
+        <div class="p-4 rounded-2xl border border-white/10 bg-white/5 space-y-3">
+          <div class="flex items-center justify-between">
+            <b class="text-white">Buffer (clic en feature)</b>
+            <button class="mini" id="btnBufferMode">Activar</button>
+          </div>
+          <div class="grid grid-cols-1 gap-2">
+            <select id="selBufferFrom" class="select">
+              <option value="">Capa origen (clic)</option>
+            </select>
+            <select id="selBufferAgainst" class="select">
+              <option value="">Capa a consultar (intersecta)</option>
+            </select>
+            <div class="flex gap-2">
+              <input id="inpBufferDist" class="input w-full" type="number" min="0" value="500" />
+              <select id="selBufferUnit" class="select">
+                <option value="m">m</option>
+                <option value="km">km</option>
+              </select>
+            </div>
+            <button class="mini yellow" onclick="runBufferHint()">Listo (usa clic)</button>
+          </div>
+          <div class="text-xs text-white/60">
+            Modo activo: haz clic en un feature de la capa origen para generar buffer y seleccionar intersectados.
+          </div>
+        </div>
+
+        <div class="p-4 rounded-2xl border border-white/10 bg-white/5 space-y-3">
+          <div class="flex items-center justify-between">
+            <b class="text-white">Proximidad (capa ↔ capa)</b>
+            <button class="mini yellow" onclick="runProximity()">Ejecutar</button>
+          </div>
+          <div class="grid grid-cols-1 gap-2">
+            <select id="selProxFrom" class="select">
+              <option value="">Capa A (origen)</option>
+            </select>
+            <select id="selProxTo" class="select">
+              <option value="">Capa B (destino)</option>
+            </select>
+            <div class="flex gap-2">
+              <input id="inpProxDist" class="input w-full" type="number" min="0" value="1000" />
+              <select id="selProxUnit" class="select">
+                <option value="m">m</option>
+                <option value="km">km</option>
+              </select>
+            </div>
+          </div>
+          <div class="text-xs text-white/60">
+            Genera una capa de análisis y un resumen en la tabla inferior (features dentro del umbral).
+          </div>
+        </div>
+      </div>
+
+      <div class="note">
+        <b>Importante:</b> Al iniciar, ninguna herramienta está activa. Usa los botones para activar/ejecutar solo lo que necesites.
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="pExport" data-dock="right">
+    <div class="ph">
+      <b><span class="draghint"></span> Exportar</b>
+      <div class="ph-actions">
+        <button class="ph-btn" onclick="toggleCollapse('pExport')">—</button>
+        <button class="ph-btn" onclick="dockPanel('pExport')">📌</button>
+        <button class="ph-btn" onclick="closePanel('pExport')">✕</button>
+      </div>
+    </div>
+    <div class="pc space-y-4">
+      <div class="flex flex-col md:flex-row gap-2 items-start md:items-center">
+        <select id="selExportLayer" class="select w-full md:w-[420px]">
+          <option value="">(elige capa a exportar)</option>
+        </select>
+        <button class="mini yellow" onclick="exportGeoJSON()">GeoJSON</button>
+        <button class="mini yellow" onclick="exportKML()">KML</button>
+        <button class="mini yellow" onclick="exportKMZ()">KMZ</button>
+      </div>
+      <div class="text-sm text-white/70">
+        Exporta capas cargadas o resultados de análisis (buffer/proximidad) como <b>GeoJSON</b>, <b>KML</b> o <b>KMZ</b>.
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="pBase" data-dock="right">
+    <div class="ph">
+      <b><span class="draghint"></span> Mapa base</b>
+      <div class="ph-actions">
+        <button class="ph-btn" onclick="toggleCollapse('pBase')">—</button>
+        <button class="ph-btn" onclick="dockPanel('pBase')">📌</button>
+        <button class="ph-btn" onclick="closePanel('pBase')">✕</button>
+      </div>
+    </div>
+    <div class="pc space-y-3">
+      <div class="note">
+        <b>Google Maps:</b> requiere API Key (no incluida aquí). Si no está habilitado, GeoRapid mostrará OSM + Satélite (Esri).
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-3">
+        <label class="flex items-center gap-3 p-3 rounded-2xl bg-white/5 border border-white/10 cursor-pointer">
+          <input type="radio" name="basemap" value="osm" checked onchange="setBasemap(this.value)">
+          <div>
+            <b>OpenStreetMap</b>
+            <div class="text-xs text-white/60">Mapas estándar</div>
+          </div>
+        </label>
+
+        <label class="flex items-center gap-3 p-3 rounded-2xl bg-white/5 border border-white/10 cursor-pointer">
+          <input type="radio" name="basemap" value="esri" onchange="setBasemap(this.value)">
+          <div>
+            <b>Satélite (Esri)</b>
+            <div class="text-xs text-white/60">World Imagery</div>
+          </div>
+        </label>
+
+        <label class="flex items-center gap-3 p-3 rounded-2xl bg-white/5 border border-white/10 cursor-pointer opacity-70">
+          <input type="radio" name="basemap" value="groad" onchange="setBasemap(this.value)">
+          <div>
+            <b>Google Maps (Road)</b>
+            <div class="text-xs text-white/60">Requiere API Key</div>
+          </div>
+        </label>
+
+        <label class="flex items-center gap-3 p-3 rounded-2xl bg-white/5 border border-white/10 cursor-pointer opacity-70">
+          <input type="radio" name="basemap" value="gsat" onchange="setBasemap(this.value)">
+          <div>
+            <b>Google Satélite</b>
+            <div class="text-xs text-white/60">Requiere API Key</div>
+          </div>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="pLayers" data-dock="right">
+    <div class="ph">
+      <b><span class="draghint"></span> Capas</b>
+      <div class="ph-actions">
+        <button class="ph-btn" onclick="toggleCollapse('pLayers')">—</button>
+        <button class="ph-btn" onclick="dockPanel('pLayers')">📌</button>
+        <button class="ph-btn" onclick="closePanel('pLayers')">✕</button>
+      </div>
+    </div>
+    <div class="pc">
+      <div id="layersList"></div>
+      <div class="note">
+        <b>Orden:</b> arrastra una capa para subir/bajar. <b>Transparencia:</b> usa el slider. <b>Zoom</b> enfoca la capa.
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM PANEL -->
+  <div class="bottom" id="bottomPanel">
+    <div class="bh">
+      <div class="tabs">
+        <button class="tabbtn active" data-tab="tabTable" onclick="switchBottomTab('tabTable')">Tabla</button>
+        <button class="tabbtn" data-tab="tabSummary" onclick="switchBottomTab('tabSummary')">Resumen</button>
+        <button class="tabbtn" data-tab="tabLogs" onclick="switchBottomTab('tabLogs')">Logs</button>
+      </div>
+      <div class="actions">
+        <button class="mini" onclick="toggleBottomSize()">Expandir</button>
+        <button class="mini" onclick="toggleBottomCollapse()">Ocultar</button>
+      </div>
+    </div>
+
+    <div class="bc">
+      <div class="toolbar" id="tableToolbar">
+        <select id="selTableLayer" class="select">
+          <option value="">(elige capa)</option>
+        </select>
+        <input id="inpSearch" class="input w-[260px]" placeholder="Buscar en atributos..." />
+        <button class="mini" onclick="zoomToSelection()">Zoom a selección</button>
+        <button class="mini yellow" onclick="clearSelection()">Limpiar selección</button>
+      </div>
+
+      <div class="tablewrap" id="tabTable"></div>
+      <div class="tablewrap hidden" id="tabSummary"></div>
+      <div class="tablewrap hidden" id="tabLogs"></div>
+    </div>
+  </div>
+
+  <!-- Modal XY -->
+  <div id="xyModal" class="hidden fixed inset-0 z-[10000] bg-black/60 flex items-center justify-center p-4">
+    <div class="w-full max-w-xl rounded-2xl bg-[#1e1e22] border border-white/10 shadow-2xl overflow-hidden">
+      <div class="p-4 flex items-center justify-between border-b border-white/10">
+        <b class="text-[var(--dal-yellow)]">Configurar coordenadas (CSV/Excel)</b>
+        <button class="mini" onclick="closeXYModal()">Cerrar</button>
+      </div>
+      <div class="p-4 space-y-3 text-white">
+        <div class="text-sm text-white/70">
+          Selecciona las columnas X/Y. GeoRapid creará una capa de puntos en WGS84.
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs text-white/70">Campo X (Longitud / Este)</label>
+            <select id="xyX" class="select"></select>
+          </div>
+          <div>
+            <label class="text-xs text-white/70">Campo Y (Latitud / Norte)</label>
+            <select id="xyY" class="select"></select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div>
+            <label class="text-xs text-white/70">CRS origen</label>
+            <select id="xyCrs" class="select">
+              <option value="EPSG:4326">Geográficas (WGS84)</option>
+              <option value="UTM_WGS84">UTM (WGS84)</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs text-white/70">Huso (si UTM)</label>
+            <input id="xyZone" class="input" type="number" value="18" min="1" max="60" />
+          </div>
+          <div>
+            <label class="text-xs text-white/70">Hemisferio</label>
+            <select id="xyHemi" class="select">
+              <option value="N">N</option>
+              <option value="S">S</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="flex gap-2 justify-end">
+          <button class="mini yellow" onclick="confirmXY()">Crear capa</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================
+    // CONFIG
+    // =========================================================
+    const GOOGLE_MAPS_API_KEY = "";
+
+    // =========================================================
+    // STATE
+    // =========================================================
+    const state = {
+      map: null,
+      basemaps: {},
+      currentBasemap: null,
+      layers: [],
+      selection: { layerId: null, ids: new Set() },
+      analysis: { last: null },
+      logs: [],
+      measureControl: null,
+      drawControl: null,
+      drawEnabled: false,
+      bufferMode: false,
+      bufferFromId: null,
+      bufferAgainstId: null,
+      bufferLayerId: null,
+      panelZ: 10050
+    };
+
+    // =========================================================
+    // INIT
+    // =========================================================
+    init();
+
+    function init(){
+      state.map = L.map("map", { zoomControl: true }).setView([10.48, -66.90], 6);
+
+      state.basemaps.osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap contributors | DALPGIS",
+        maxZoom: 20
+      });
+
+      state.basemaps.esri = L.tileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        { attribution: "Tiles &copy; Esri" }
+      );
+
+      state.basemaps.groad = null;
+      state.basemaps.gsat = null;
+
+      tryEnableGoogleBasemaps();
+      setBasemap("osm");
+
+      initFloatingPanels();
+
+      document.getElementById("fileInput").addEventListener("change", handleFiles);
+
+      document.querySelectorAll(".sbtn[data-panel]").forEach(btn=>{
+        btn.addEventListener("click", () => togglePanel(btn.dataset.panel, btn));
+      });
+
+      document.getElementById("btnLogs").addEventListener("click", ()=>{
+        openBottom();
+        switchBottomTab("tabLogs");
+      });
+
+      document.getElementById("btnReset").addEventListener("click", resetAll);
+
+      document.getElementById("inpSearch").addEventListener("input", renderTable);
+
+      document.getElementById("btnMeasure").addEventListener("click", toggleMeasure);
+      document.getElementById("btnSelectDraw").addEventListener("click", toggleDrawSelection);
+      document.getElementById("btnBufferMode").addEventListener("click", toggleBufferMode);
+
+      document.getElementById("btnSidebarToggle").addEventListener("click", toggleSidebar);
+
+      // ✅ FAB: mostrar tabla cuando está oculta
+      document.getElementById("btnShowBottom").addEventListener("click", ()=>{
+        openBottom();
+        switchBottomTab("tabTable");
+        // por si estaba expandida antes, se mantiene igual
+      });
+
+      renderLogs();
+      renderSummary();
+      refreshSelectors();
+      renderLayersPanel();
+
+      updateUILayoutVars();
+      syncBottomFab();
+
+      window.addEventListener("resize", () => {
+        updateUILayoutVars();
+        syncBottomFab();
+      });
+
+      log("Sistema iniciado. Sidebar derecha + sin solape con tabla + botón para reabrir tabla.", "success");
+    }
+
+    function updateUILayoutVars(){
+      updateSidebarCurrentWidth();
+      updateBottomHeightVar();
+    }
+
+    function updateSidebarCurrentWidth(){
+      const sb = document.getElementById("sidebar");
+      if(!sb) return;
+      const w = Math.round(sb.getBoundingClientRect().width);
+      document.documentElement.style.setProperty("--sidebar-current-w", w + "px");
+
+      const rightPx = 10 + w + 10;
+      document.querySelectorAll(".panel.open").forEach(p=>{
+        if(p.dataset.userMoved !== "1"){
+          p.style.right = rightPx + "px";
+          p.style.left = "auto";
+        }
+      });
+    }
+
+    function updateBottomHeightVar(){
+      const b = document.getElementById("bottomPanel");
+      const isHidden = b.classList.contains("hidden");
+      const h = isHidden ? 0 : Math.round(b.getBoundingClientRect().height);
+      document.documentElement.style.setProperty("--bottom-panel-h", h + "px");
+    }
+
+    // ✅ Muestra/oculta el FAB según estado del bottom panel
+    function syncBottomFab(){
+      const b = document.getElementById("bottomPanel");
+      const fab = document.getElementById("btnShowBottom");
+      if(!b || !fab) return;
+      const hidden = b.classList.contains("hidden");
+      fab.classList.toggle("show", hidden);
+    }
+
+    function toggleSidebar(){
+      const sb = document.getElementById("sidebar");
+      sb.classList.toggle("collapsed");
+
+      const label = document.querySelector("#btnSidebarToggle .label");
+      if(label) label.textContent = sb.classList.contains("collapsed") ? "Expandir" : "Colapsar";
+
+      setTimeout(()=>{
+        updateSidebarCurrentWidth();
+        syncBottomFab();
+        state.map.invalidateSize();
+      }, 120);
+    }
+
+    // =========================================================
+    // FLOATING PANELS
+    // =========================================================
+    function initFloatingPanels(){
+      document.querySelectorAll(".panel").forEach(panel=>{
+        makePanelDraggable(panel);
+        panel.addEventListener("mousedown", ()=> bringPanelToFront(panel));
+      });
+    }
+
+    function bringPanelToFront(panel){
+      state.panelZ += 1;
+      panel.style.zIndex = state.panelZ;
+    }
+
+    function getRightDockPx(){
+      const sb = document.getElementById("sidebar");
+      const w = sb ? Math.round(sb.getBoundingClientRect().width) : 52;
+      return 10 + w + 10;
+    }
+
+    function makePanelDraggable(panel){
+      const header = panel.querySelector(".ph");
+      if(!header) return;
+
+      let dragging = false;
+      let offsetX = 0;
+      let offsetY = 0;
+
+      header.addEventListener("mousedown", (e)=>{
+        if(e.target.closest(".ph-btn")) return;
+        dragging = true;
+        panel.classList.add("dragging");
+        bringPanelToFront(panel);
+
+        const rect = panel.getBoundingClientRect();
+        panel.style.left = rect.left + "px";
+        panel.style.top = rect.top + "px";
+        panel.style.right = "auto";
+        panel.dataset.userMoved = "1";
+
+        offsetX = e.clientX - rect.left;
+        offsetY = e.clientY - rect.top;
+
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
+
+      function onMove(e){
+        if(!dragging) return;
+
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+
+        let x = e.clientX - offsetX;
+        let y = e.clientY - offsetY;
+
+        const margin = 8;
+        const w = panel.offsetWidth;
+        const h = panel.offsetHeight;
+
+        x = Math.max(margin, Math.min(vw - w - margin, x));
+        y = Math.max(parseInt(getComputedStyle(document.documentElement).getPropertyValue("--topbar-h")) + 10, Math.min(vh - h - margin, y));
+
+        panel.style.left = x + "px";
+        panel.style.top = y + "px";
+      }
+
+      function onUp(){
+        dragging = false;
+        panel.classList.remove("dragging");
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      }
+    }
+
+    function toggleCollapse(panelId){
+      const p = document.getElementById(panelId);
+      if(!p) return;
+      p.classList.toggle("collapsed");
+      bringPanelToFront(p);
+    }
+
+    function dockPanel(panelId){
+      const p = document.getElementById(panelId);
+      if(!p) return;
+      p.style.left = "auto";
+      p.style.top = `calc(var(--topbar-h) + 14px)`;
+      p.style.right = getRightDockPx() + "px";
+      p.dataset.userMoved = "0";
+      bringPanelToFront(p);
+    }
+
+    function closePanel(panelId){
+      const p = document.getElementById(panelId);
+      if(!p) return;
+      p.classList.remove("open");
+      p.classList.remove("collapsed");
+      document.querySelector(`.sbtn[data-panel="${panelId}"]`)?.classList.remove("active");
+    }
+
+    function togglePanel(panelId, btn){
+      const panel = document.getElementById(panelId);
+      if(!panel) return;
+
+      const willOpen = !panel.classList.contains("open");
+      panel.classList.toggle("open", willOpen);
+      btn.classList.toggle("active", willOpen);
+
+      if(willOpen){
+        bringPanelToFront(panel);
+        if(panel.dataset.userMoved !== "1"){
+          panel.style.left = "auto";
+          panel.style.top = `calc(var(--topbar-h) + 14px)`;
+          panel.style.right = getRightDockPx() + "px";
+        }
+      } else {
+        panel.classList.remove("collapsed");
+      }
+    }
+
+    // =========================================================
+    // GOOGLE BASEMAPS (optional)
+    // =========================================================
+    function tryEnableGoogleBasemaps(){
+      const hasGoogle = typeof google !== "undefined" && google.maps;
+      const hasMutant = typeof L !== "undefined" && L.gridLayer && L.gridLayer.googleMutant;
+      if(!hasGoogle || !hasMutant){
+        log("Google basemaps no habilitados (requiere Google Maps JS API + GoogleMutant).", "warn");
+        return;
+      }
+      state.basemaps.groad = L.gridLayer.googleMutant({ type: "roadmap" });
+      state.basemaps.gsat = L.gridLayer.googleMutant({ type: "satellite" });
+      log("Google basemaps habilitados.", "success");
+    }
+
+    // =========================================================
+    // LOGS
+    // =========================================================
+    function log(message, type="info"){
+      const time = new Date().toLocaleTimeString();
+      state.logs.push({time, type, message});
+      renderLogs();
+
+      if(type==="error") console.error(message);
+      else if(type==="warn") console.warn(message);
+      else console.log(message);
+    }
+
+    function renderLogs(){
+      const box = document.getElementById("tabLogs");
+      const html = state.logs.slice(-300).map(l=>{
+        const tag = l.type==="error" ? "ERROR" : l.type==="warn" ? "WARN" : l.type==="success" ? "OK" : "INFO";
+        return `<div class="logline"><span class="opacity-60">[${l.time}]</span> <b>${tag}</b> ${escapeHtml(l.message)}</div>`;
+      }).join("");
+
+      box.innerHTML = `<div class="p-1">${html || "<div class='text-white/60'>Sin logs</div>"}</div>`;
+    }
+
+    // =========================================================
+    // BOTTOM PANEL
+    // =========================================================
+    function openBottom(){
+      const b = document.getElementById("bottomPanel");
+      b.classList.remove("hidden");
+      setTimeout(()=>{
+        updateBottomHeightVar();
+        syncBottomFab();
+      }, 0);
+    }
+
+    function toggleBottomCollapse(){
+      const b = document.getElementById("bottomPanel");
+      b.classList.toggle("hidden");
+
+      setTimeout(()=>{
+        updateBottomHeightVar();
+        syncBottomFab();
+        state.map.invalidateSize();
+      }, 120);
+    }
+
+    function toggleBottomSize(){
+      const b = document.getElementById("bottomPanel");
+      b.classList.toggle("expanded");
+      setTimeout(()=>{
+        updateBottomHeightVar();
+        syncBottomFab();
+        state.map.invalidateSize();
+      }, 180);
+    }
+
+    function switchBottomTab(tabId){
+      document.querySelectorAll(".tabbtn").forEach(t=>t.classList.remove("active"));
+      document.querySelector(`.tabbtn[data-tab="${tabId}"]`)?.classList.add("active");
+
+      document.getElementById("tabTable").classList.toggle("hidden", tabId!=="tabTable");
+      document.getElementById("tabSummary").classList.toggle("hidden", tabId!=="tabSummary");
+      document.getElementById("tabLogs").classList.toggle("hidden", tabId!=="tabLogs");
+      document.getElementById("tableToolbar").classList.toggle("hidden", tabId!=="tabTable");
+    }
+
+    // =========================================================
+    // BASEMAP
+    // =========================================================
+    function setBasemap(key){
+      const layer = state.basemaps[key];
+      if(!layer){
+        log("Basemap no disponible. Si es Google, habilita scripts + API key.", "warn");
+        document.querySelectorAll('input[name="basemap"]').forEach(r=>{
+          if(r.value==="osm") r.checked = true;
+        });
+        key = "osm";
+      }
+
+      if(state.currentBasemap) state.map.removeLayer(state.currentBasemap);
+      state.currentBasemap = state.basemaps[key] || state.basemaps.osm;
+      state.currentBasemap.addTo(state.map);
+
+      log(`Mapa base: ${key.toUpperCase()}`, "success");
+    }
+
+    // =========================================================
+    // LAYERS CORE
+    // =========================================================
+    function addGeoJsonLayer(geojson, name, meta={}){
+      const id = (crypto?.randomUUID?.() || ("id_" + Math.random().toString(16).slice(2)));
+      const color = randomColor();
+      const pane = `pane_${String(id).replace(/-/g,"")}`;
+
+      state.map.createPane(pane);
+      state.map.getPane(pane).style.zIndex = 400 + state.layers.length;
+
+      // ensure __fid
+      let fidx = 0;
+      geojson.features = (geojson.features || []).map(f=>{
+        const nf = JSON.parse(JSON.stringify(f));
+        if(!nf.properties) nf.properties = {};
+        nf.properties.__fid = (nf.properties.__fid ?? (++fidx));
+        return nf;
+      });
+
+      const leafletLayer = L.geoJSON(geojson, {
+        pane,
+        style: ()=>({ color, weight: 2, opacity: 1, fillOpacity: 0.25 }),
+        pointToLayer: (f, latlng)=> L.circleMarker(latlng, {
+          radius: 6,
+          color: "#000",
+          weight: 1,
+          fillColor: color,
+          fillOpacity: 0.85
+        }),
+        onEachFeature: (f, layer)=>{
+          layer.on("click", ()=>{
+            if(state.bufferMode){
+              handleBufferClick(id, f);
+              return;
+            }
+            layer.bindPopup(buildPopupHtml(name, f.properties)).openPopup();
+            toggleFeatureSelection(id, f);
+          });
+        }
+      }).addTo(state.map);
+
+      const bounds = leafletLayer.getBounds?.();
+      if(bounds && bounds.isValid && bounds.isValid()) state.map.fitBounds(bounds.pad(0.15));
+
+      state.layers.unshift({
+        id, name, geojson, leafletLayer, pane, color,
+        visible: true, opacity: 1, meta
+      });
+
+      log(`Capa cargada: ${name} (${geojson.features?.length || 0} features)`, "success");
+      refreshSelectors();
+      renderLayersPanel();
+      renderTable();
+      renderSummary();
+
+      updateUILayoutVars();
+      syncBottomFab();
+    }
+
+    function removeLayer(layerId){
+      const idx = state.layers.findIndex(l=>l.id===layerId);
+      if(idx<0) return;
+
+      const lyr = state.layers[idx];
+      state.map.removeLayer(lyr.leafletLayer);
+
+      const paneEl = state.map.getPane(lyr.pane);
+      if(paneEl && paneEl.parentNode) paneEl.parentNode.removeChild(paneEl);
+
+      state.layers.splice(idx,1);
+
+      if(state.selection.layerId===layerId) clearSelection();
+
+      log(`Capa eliminada: ${lyr.name}`, "warn");
+      refreshSelectors();
+      renderLayersPanel();
+      renderTable();
+      renderSummary();
+      updateUILayoutVars();
+      syncBottomFab();
+    }
+
+    function setLayerOpacity(layerId, opacity){
+      const lyr = state.layers.find(l=>l.id===layerId);
+      if(!lyr) return;
+      lyr.opacity = opacity;
+
+      lyr.leafletLayer.eachLayer(ll=>{
+        if(ll.setStyle){
+          ll.setStyle({
+            fillOpacity: Math.max(0.10, 0.85*opacity),
+            opacity: Math.max(0.10, 1*opacity)
+          });
+        }
+      });
+    }
+
+    function setLayerVisibility(layerId, vis){
+      const lyr = state.layers.find(l=>l.id===layerId);
+      if(!lyr) return;
+      lyr.visible = vis;
+      if(vis) lyr.leafletLayer.addTo(state.map);
+      else state.map.removeLayer(lyr.leafletLayer);
+    }
+
+    function zoomToLayer(layerId){
+      const lyr = state.layers.find(l=>l.id===layerId);
+      if(!lyr) return;
+      const bounds = lyr.leafletLayer.getBounds?.();
+      if(bounds && bounds.isValid && bounds.isValid()) state.map.fitBounds(bounds.pad(0.15));
+    }
+
+    function reorderLayers(newOrderIds){
+      const newLayers = [];
+      newOrderIds.forEach(id=>{
+        const l = state.layers.find(x=>x.id===id);
+        if(l) newLayers.push(l);
+      });
+      state.layers = newLayers;
+
+      state.layers.forEach((l, i)=>{
+        const paneEl = state.map.getPane(l.pane);
+        if(paneEl) paneEl.style.zIndex = 400 + (state.layers.length - i);
+      });
+
+      log("Orden de capas actualizado.", "success");
+    }
+
+    function renderLayersPanel(){
+      const container = document.getElementById("layersList");
+      if(state.layers.length===0){
+        container.innerHTML = `<div class="text-white/60">No hay capas cargadas.</div>`;
+        return;
+      }
+
+      container.innerHTML = state.layers.map(l=>{
+        return `
+          <div class="p-3 rounded-2xl border border-white/10 bg-white/5 mb-2 flex items-center justify-between gap-3"
+               draggable="true" data-lid="${escapeHtml(l.id)}">
+            <div class="min-w-0">
+              <div class="text-white font-extrabold truncate" title="${escapeHtml(l.name)}">${escapeHtml(l.name)}</div>
+              <div class="text-xs text-white/60">${(l.geojson.features?.length||0)} features</div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <label class="text-xs text-white/70 flex items-center gap-2">
+                <input type="checkbox" ${l.visible ? "checked":""} onchange="setLayerVisibility('${l.id}', this.checked)">
+                ver
+              </label>
+              <input style="width:110px" type="range" min="0.05" max="1" step="0.05" value="${l.opacity}"
+                     oninput="setLayerOpacity('${l.id}', parseFloat(this.value))">
+              <button class="mini" onclick="zoomToLayer('${l.id}')">Zoom</button>
+              <button class="mini" onclick="removeLayer('${l.id}')">🗑️</button>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      const items = container.querySelectorAll("[draggable='true']");
+      let dragId = null;
+
+      items.forEach(it=>{
+        it.addEventListener("dragstart", (e)=>{
+          dragId = it.dataset.lid;
+          e.dataTransfer.effectAllowed = "move";
+        });
+        it.addEventListener("dragover", (e)=> e.preventDefault());
+        it.addEventListener("drop", (e)=>{
+          e.preventDefault();
+          const targetId = it.dataset.lid;
+          if(!dragId || dragId===targetId) return;
+
+          const ids = state.layers.map(x=>x.id);
+          const from = ids.indexOf(dragId);
+          const to = ids.indexOf(targetId);
+          ids.splice(to, 0, ids.splice(from, 1)[0]);
+
+          reorderLayers(ids);
+          renderLayersPanel();
+        });
+      });
+    }
+
+    // =========================================================
+    // SELECTORS
+    // =========================================================
+    function refreshSelectors(){
+      const opts = state.layers.map(l=>`<option value="${escapeHtml(l.id)}">${escapeHtml(l.name)}</option>`).join("");
+
+      setSelectHTML("selSelectLayer", opts, true);
+      setSelectHTML("selBufferFrom", opts, true);
+      setSelectHTML("selBufferAgainst", opts, true);
+      setSelectHTML("selProxFrom", opts, true);
+      setSelectHTML("selProxTo", opts, true);
+      setSelectHTML("selExportLayer", opts, true);
+      setSelectHTML("selTableLayer", opts, true);
+
+      keepOrReset("selTableLayer");
+      keepOrReset("selExportLayer");
+      keepOrReset("selSelectLayer");
+      keepOrReset("selBufferFrom");
+      keepOrReset("selBufferAgainst");
+      keepOrReset("selProxFrom");
+      keepOrReset("selProxTo");
+
+      const tableSel = document.getElementById("selTableLayer");
+      if(!tableSel.value && state.layers[0]) tableSel.value = state.layers[0].id;
+
+      document.getElementById("selTableLayer").onchange = ()=>renderTable();
+    }
+
+    function setSelectHTML(id, optionsHTML, keepFirst=false){
+      const sel = document.getElementById(id);
+      if(!sel) return;
+
+      const first = keepFirst ? (sel.querySelector("option:first-child")?.outerHTML || "") : "";
+      sel.innerHTML = first + optionsHTML;
+    }
+
+    function keepOrReset(id){
+      const sel = document.getElementById(id);
+      if(!sel) return;
+
+      const val = sel.value;
+      if(val && ![...sel.options].some(o=>o.value===val)) sel.value = "";
+    }
+
+    // =========================================================
+    // FILE LOADING
+    // =========================================================
+    async function handleFiles(e){
+      const files = Array.from(e.target.files || []);
+      if(!files.length) return;
+
+      for(const file of files){
+        try{
+          await loadFile(file);
+        } catch(err){
+          log(`No se pudo cargar ${file.name}: ${err.message}`, "error");
+        }
+      }
+
+      e.target.value = "";
+    }
+
+    async function loadFile(file){
+      const name = file.name;
+      const lower = name.toLowerCase();
+      log(`Leyendo archivo: ${name}...`);
+
+      if(lower.endsWith(".geojson") || (lower.endsWith(".json") && !lower.endsWith(".arcgis.json"))){
+        const text = await file.text();
+        const json = JSON.parse(text);
+        const geo = normalizeAnyToGeoJSON(json);
+        addGeoJsonLayer(geo, name, {source:"GeoJSON/JSON"});
+        return;
+      }
+
+      if(lower.endsWith(".kml")){
+        const text = await file.text();
+        const geo = kmlToGeoJSON(text);
+        addGeoJsonLayer(geo, name, {source:"KML"});
+        return;
+      }
+
+      if(lower.endsWith(".kmz") || lower.endsWith(".zip")){
+        const buf = await file.arrayBuffer();
+        const zip = await JSZip.loadAsync(buf);
+
+        const kmlFile = Object.keys(zip.files).find(p=>p.toLowerCase().endsWith(".kml"));
+        if(kmlFile){
+          const kmlText = await zip.files[kmlFile].async("text");
+          const geo = kmlToGeoJSON(kmlText);
+          addGeoJsonLayer(geo, name, {source:"KMZ"});
+          return;
+        }
+
+        const geo = await shp(buf);
+        const fc = Array.isArray(geo)
+          ? { type:"FeatureCollection", features: geo.flatMap(g=>g.features||[]) }
+          : geo;
+
+        addGeoJsonLayer(fc, name, {source:"Shapefile ZIP"});
+        return;
+      }
+
+      if(lower.endsWith(".csv")){
+        const text = await file.text();
+        const parsed = await parseCSV(text);
+        await handleTabular(parsed.data, parsed.headers, name);
+        return;
+      }
+
+      if(lower.endsWith(".xlsx") || lower.endsWith(".xls")){
+        const buf = await file.arrayBuffer();
+        const {rows, headers} = parseExcel(buf);
+        await handleTabular(rows, headers, name);
+        return;
+      }
+
+      const text = await file.text();
+      const json = JSON.parse(text);
+      const geo = normalizeAnyToGeoJSON(json);
+      addGeoJsonLayer(geo, name, {source:"Auto JSON"});
+    }
+
+    function normalizeAnyToGeoJSON(json){
+      if(json && json.type==="FeatureCollection" && Array.isArray(json.features)) return json;
+      if(json && json.type==="Feature") return {type:"FeatureCollection", features:[json]};
+      if(json && Array.isArray(json.features) && (json.geometryType || json.spatialReference)) return arcgisToGeoJSON(json);
+      if(json && json.features && Array.isArray(json.features)) return {type:"FeatureCollection", features: json.features};
+      throw new Error("Formato no reconocido (necesita GeoJSON o ArcGIS FeatureSet).");
+    }
+
+    function arcgisToGeoJSON(fs){
+      const wkid = fs.spatialReference?.wkid;
+      const needs3857 = (wkid===3857 || wkid===102100);
+
+      const feats = fs.features.map((f)=>{
+        const attr = f.attributes || {};
+        let geom = null;
+
+        if(f.geometry){
+          if(typeof f.geometry.x === "number" && typeof f.geometry.y === "number"){
+            let x = f.geometry.x, y = f.geometry.y;
+            if(needs3857){
+              const ll = mercatorToWgs84(x,y);
+              x = ll[0]; y = ll[1];
+            }
+            geom = { type:"Point", coordinates:[x,y] };
+          } else if(Array.isArray(f.geometry.rings)){
+            const rings = f.geometry.rings.map(r=> r.map(([x,y])=> needs3857 ? mercatorToWgs84(x,y) : [x,y]));
+            geom = { type:"Polygon", coordinates: rings };
+          } else if(Array.isArray(f.geometry.paths)){
+            const paths = f.geometry.paths.map(p=> p.map(([x,y])=> needs3857 ? mercatorToWgs84(x,y) : [x,y]));
+            geom = { type:"MultiLineString", coordinates: paths };
+          }
+        }
+
+        return { type:"Feature", properties: attr, geometry: geom };
+      }).filter(f=>f.geometry);
+
+      if(wkid && wkid!==4326 && !needs3857) log(`ArcGIS JSON con WKID=${wkid}. Se asumió WGS84.`, "warn");
+      else log(`ArcGIS JSON convertido (wkid=${wkid || "?"})`, "success");
+
+      return { type:"FeatureCollection", features: feats };
+    }
+
+    function mercatorToWgs84(x, y){
+      const R = 6378137.0;
+      const lon = (x / R) * (180/Math.PI);
+      const lat = (2 * Math.atan(Math.exp(y / R)) - Math.PI/2) * (180/Math.PI);
+      return [lon, lat];
+    }
+
+    function kmlToGeoJSON(kmlText){
+      const dom = new DOMParser().parseFromString(kmlText, "text/xml");
+      const gj = toGeoJSON.kml(dom);
+      return { type:"FeatureCollection", features: gj.features || [] };
+    }
+
+    function parseCSV(csvText){
+      return new Promise((resolve, reject)=>{
+        Papa.parse(csvText, {
+          header:true,
+          skipEmptyLines:true,
+          dynamicTyping:true,
+          complete:(res)=> resolve({data: res.data || [], headers: res.meta?.fields || []}),
+          error:(err)=>reject(err)
+        });
+      });
+    }
+
+    function parseExcel(buffer){
+      const wb = XLSX.read(buffer, {type:"array"});
+      const sheetName = wb.SheetNames[0];
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], {defval:null});
+      const headers = rows[0] ? Object.keys(rows[0]) : [];
+      return {rows, headers};
+    }
+
+    async function handleTabular(rows, headers, name){
+      if(!rows.length){
+        log("Archivo tabular vacío.", "error");
+        return;
+      }
+
+      const hLower = headers.map(h=>String(h).toLowerCase());
+      const xCandidates = ["lon","lng","longitud","longitude","x","este","easting"];
+      const yCandidates = ["lat","latitud","latitude","y","norte","northing"];
+
+      const findField = (cands)=>{
+        const idx = hLower.findIndex(h=> cands.some(c=>h.includes(c)));
+        return idx>=0 ? headers[idx] : null;
+      };
+
+      const autoX = findField(xCandidates);
+      const autoY = findField(yCandidates);
+
+      if(autoX && autoY){
+        const geo = tabularToPoints(rows, autoX, autoY, {crs:"EPSG:4326"});
+        addGeoJsonLayer(geo, name, {source:"CSV/Excel", x:autoX, y:autoY});
+        return;
+      }
+
+      openXYModal(rows, headers, name);
+    }
+
+    function tabularToPoints(rows, fieldX, fieldY, opts){
+      const crs = opts?.crs || "EPSG:4326";
+      const zone = opts?.zone || 18;
+      const hemi = opts?.hemi || "N";
+      const utmProj = `+proj=utm +zone=${zone} ${hemi==="S" ? "+south " : ""}+datum=WGS84 +units=m +no_defs`;
+
+      const feats = [];
+      let bad = 0;
+
+      rows.forEach((r)=>{
+        const x = parseFloat(r[fieldX]);
+        const y = parseFloat(r[fieldY]);
+        if(!isFinite(x) || !isFinite(y)){ bad++; return; }
+
+        let lonlat = [x,y];
+        try{
+          if(crs==="UTM_WGS84") lonlat = proj4(utmProj, "EPSG:4326", [x,y]);
+          if(lonlat[0] < -180 || lonlat[0] > 180 || lonlat[1] < -90 || lonlat[1] > 90){ bad++; return; }
+
+          feats.push({
+            type:"Feature",
+            properties:{...r},
+            geometry:{ type:"Point", coordinates: lonlat }
+          });
+        }catch(e){
+          bad++;
+        }
+      });
+
+      if(bad) log(`${bad} filas ignoradas por coordenadas inválidas.`, "warn");
+      return { type:"FeatureCollection", features: feats };
+    }
+
+    // XY Modal
+    let xyModalState = { rows:null, headers:null, name:null };
+
+    function openXYModal(rows, headers, name){
+      xyModalState = {rows, headers, name};
+
+      const selX = document.getElementById("xyX");
+      const selY = document.getElementById("xyY");
+
+      selX.innerHTML = headers.map(h=>`<option value="${escapeHtml(h)}">${escapeHtml(h)}</option>`).join("");
+      selY.innerHTML = headers.map(h=>`<option value="${escapeHtml(h)}">${escapeHtml(h)}</option>`).join("");
+
+      document.getElementById("xyModal").classList.remove("hidden");
+      log("CSV/Excel: selecciona campos X/Y en el modal.", "info");
+    }
+
+    function closeXYModal(){
+      document.getElementById("xyModal").classList.add("hidden");
+    }
+
+    function confirmXY(){
+      const fieldX = document.getElementById("xyX").value;
+      const fieldY = document.getElementById("xyY").value;
+      const crs = document.getElementById("xyCrs").value;
+      const zone = parseInt(document.getElementById("xyZone").value,10);
+      const hemi = document.getElementById("xyHemi").value;
+
+      const geo = tabularToPoints(xyModalState.rows, fieldX, fieldY, {crs, zone, hemi});
+      addGeoJsonLayer(geo, xyModalState.name, {source:"CSV/Excel", x:fieldX, y:fieldY, crs, zone, hemi});
+      closeXYModal();
+    }
+
+    // =========================================================
+    // SELECTION / TABLE / SUMMARY
+    // =========================================================
+    function toggleFeatureSelection(layerId, feature){
+      const fid = feature?.properties?.__fid;
+      if(!fid) return;
+
+      if(state.selection.layerId && state.selection.layerId !== layerId) clearSelection();
+
+      state.selection.layerId = layerId;
+      const set = state.selection.ids;
+
+      if(set.has(fid)) set.delete(fid);
+      else set.add(fid);
+
+      applySelectionStyle(layerId);
+      renderTable();
+      renderSummary();
+    }
+
+    function applySelectionStyle(layerId){
+      const lyr = state.layers.find(l=>l.id===layerId);
+      if(!lyr) return;
+
+      const sel = state.selection.ids;
+      lyr.leafletLayer.eachLayer(ll=>{
+        const f = ll.feature;
+        if(!f?.properties?.__fid) return;
+        const isSel = sel.has(f.properties.__fid);
+
+        if(ll.setStyle){
+          if(isSel) ll.setStyle({ color: "#ffffff", weight: 4, fillOpacity: 0.35 });
+          else ll.setStyle({ color: lyr.color, weight: 2, fillOpacity: Math.max(0.05, 0.25*lyr.opacity) });
+        }
+      });
+    }
+
+    function clearSelection(){
+      state.selection.layerId = null;
+      state.selection.ids = new Set();
+
+      state.layers.forEach(l=>{
+        l.leafletLayer.eachLayer(ll=>{
+          if(ll.setStyle) ll.setStyle({ color: l.color, weight: 2, fillOpacity: Math.max(0.05, 0.25*l.opacity) });
+        });
+      });
+
+      renderTable();
+      renderSummary();
+      log("Selección limpiada.", "info");
+    }
+
+    function zoomToSelection(){
+      if(!state.selection.layerId || state.selection.ids.size===0) return;
+
+      const lyr = state.layers.find(l=>l.id===state.selection.layerId);
+      if(!lyr) return;
+
+      const feats = (lyr.geojson.features||[]).filter(f=> state.selection.ids.has(f.properties?.__fid));
+      if(!feats.length) return;
+
+      const tmp = L.geoJSON({type:"FeatureCollection", features: feats});
+      const b = tmp.getBounds();
+      if(b.isValid()) state.map.fitBounds(b.pad(0.2));
+    }
+
+    function renderTable(){
+      const layerId = document.getElementById("selTableLayer").value;
+      const search = (document.getElementById("inpSearch").value || "").toLowerCase();
+      const box = document.getElementById("tabTable");
+
+      if(!layerId){
+        box.innerHTML = `<div class="text-white/60">Elige una capa para ver atributos.</div>`;
+        return;
+      }
+
+      const lyr = state.layers.find(l=>l.id===layerId);
+      if(!lyr){
+        box.innerHTML = `<div class="text-white/60">Capa no encontrada.</div>`;
+        return;
+      }
+
+      const feats = (lyr.geojson.features || []).slice();
+      const filtered = search ? feats.filter(f=>{
+        const props = f.properties || {};
+        return Object.values(props).some(v=> String(v ?? "").toLowerCase().includes(search));
+      }) : feats;
+
+      const keys = new Set();
+      filtered.slice(0,200).forEach(f=> Object.keys(f.properties||{}).forEach(k=>{
+        if(k!=="__fid") keys.add(k);
+      }));
+
+      const columns = ["__fid", ...Array.from(keys).slice(0, 30)];
+      const rows = filtered.slice(0, 300);
+
+      const selActive = (state.selection.layerId===layerId && state.selection.ids.size>0);
+
+      box.innerHTML = `
+        <div class="text-xs text-white/60 py-2">
+          Mostrando <b style="color:var(--dal-yellow)">${rows.length}</b> de
+          <b style="color:var(--dal-yellow)">${filtered.length}</b>
+          ${selActive ? ` | Seleccionados: <b style="color:var(--dal-yellow)">${state.selection.ids.size}</b>` : ""}
+        </div>
+        <div class="overflow-auto">
+          <table>
+            <thead><tr>${columns.map(c=>`<th>${escapeHtml(c)}</th>`).join("")}</tr></thead>
+            <tbody>
+              ${rows.map(f=>{
+                const fid = f.properties?.__fid;
+                const isSel = (state.selection.layerId===layerId && state.selection.ids.has(fid));
+                return `
+                  <tr style="${isSel ? "background: rgba(231,193,11,0.12)" : ""}" onclick="selectRow('${layerId}', ${fid})">
+                    ${columns.map(c=>{
+                      const v = (c==="__fid") ? fid : (f.properties?.[c] ?? "");
+                      return `<td title="${escapeHtml(String(v))}">${escapeHtml(String(v))}</td>`;
+                    }).join("")}
+                  </tr>
+                `;
+              }).join("")}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function selectRow(layerId, fid){
+      const lyr = state.layers.find(l=>l.id===layerId);
+      if(!lyr) return;
+
+      const f = (lyr.geojson.features||[]).find(ff=>ff.properties?.__fid===fid);
+      if(!f) return;
+
+      if(state.selection.layerId && state.selection.layerId !== layerId) clearSelection();
+
+      state.selection.layerId = layerId;
+      if(state.selection.ids.has(fid)) state.selection.ids.delete(fid);
+      else state.selection.ids.add(fid);
+
+      applySelectionStyle(layerId);
+      renderTable();
+      renderSummary();
+
+      try{
+        const tmp = L.geoJSON({type:"FeatureCollection", features:[f]});
+        const b = tmp.getBounds();
+        if(b.isValid()) state.map.fitBounds(b.pad(0.25));
+      }catch(e){}
+    }
+
+    function renderSummary(){
+      const box = document.getElementById("tabSummary");
+      const selL = state.selection.layerId ? state.layers.find(l=>l.id===state.selection.layerId) : null;
+      const selCount = state.selection.ids.size;
+
+      let selHtml = `<div class="text-white/60">No hay selección activa.</div>`;
+      if(selL && selCount){
+        selHtml = `
+          <div class="p-3 rounded-2xl bg-white/5 border border-white/10 mb-3">
+            <div class="text-white"><b style="color:var(--dal-yellow)">Selección</b></div>
+            <div class="text-sm text-white/70">
+              Capa: <b>${escapeHtml(selL.name)}</b><br/>
+              Features seleccionados: <b style="color:var(--dal-yellow)">${selCount}</b>
+            </div>
+          </div>
+        `;
+      }
+
+      let analysisHtml = `<div class="text-white/60">Sin análisis reciente.</div>`;
+      if(state.analysis.last){
+        const a = state.analysis.last;
+        analysisHtml = `
+          <div class="p-3 rounded-2xl bg-white/5 border border-white/10">
+            <div class="text-white"><b style="color:var(--dal-yellow)">Último análisis</b></div>
+            <div class="text-sm text-white/70 mt-1">
+              Tipo: <b>${escapeHtml(a.type)}</b><br/>
+              Resultado: <b style="color:var(--dal-yellow)">${escapeHtml(a.summary)}</b><br/>
+              Capa resultado: <b>${escapeHtml(a.layerName || "")}</b>
+            </div>
+          </div>
+        `;
+      }
+
+      box.innerHTML = `${selHtml}${analysisHtml}`;
+    }
+
+    // =========================================================
+    // TOOLS: measure / draw selection / buffer / proximity
+    // =========================================================
+    function toggleMeasure(){
+      const btn = document.getElementById("btnMeasure");
+      if(state.measureControl){
+        state.map.removeControl(state.measureControl);
+        state.measureControl = null;
+        btn.textContent = "Activar";
+        log("Medición desactivada.");
+      }else{
+        state.measureControl = new L.Control.Measure({
+          primaryLengthUnit: "meters",
+          secondaryLengthUnit: "kilometers",
+          primaryAreaUnit: "sqmeters",
+          secondaryAreaUnit: "hectares"
+        });
+        state.measureControl.addTo(state.map);
+        btn.textContent = "Desactivar";
+        log("Medición activada.", "success");
+      }
+    }
+
+    function toggleDrawSelection(){
+      const btn = document.getElementById("btnSelectDraw");
+      if(state.drawEnabled){
+        disableDraw();
+        btn.textContent = "Activar";
+        log("Selección por dibujo desactivada.");
+      }else{
+        enableDraw();
+        btn.textContent = "Desactivar";
+        log("Selección por dibujo activada. Dibuja un polígono.", "success");
+      }
+    }
+
+    function enableDraw(){
+      if(state.drawControl) return;
+
+      const drawnItems = new L.FeatureGroup();
+      state.map.addLayer(drawnItems);
+
+      state.drawControl = new L.Control.Draw({
+        position: "topleft",
+        draw: {
+          polygon: true,
+          rectangle: true,
+          circle: false,
+          marker: false,
+          polyline: false,
+          circlemarker: false
+        },
+        edit: { featureGroup: drawnItems, edit:false, remove:true }
+      });
+
+      state.map.addControl(state.drawControl);
+
+      state.map.on(L.Draw.Event.CREATED, (e)=>{
+        drawnItems.clearLayers();
+        drawnItems.addLayer(e.layer);
+        runSpatialSelect(e.layer.toGeoJSON());
+      });
+
+      state.drawEnabled = true;
+    }
+
+    function disableDraw(){
+      if(!state.drawControl) return;
+      state.map.removeControl(state.drawControl);
+      state.drawControl = null;
+      state.drawEnabled = false;
+    }
+
+    function runSpatialSelect(selectionGeoJSON){
+      const layerId = document.getElementById("selSelectLayer").value;
+      if(!layerId){
+        log("Selecciona una capa en Herramientas → Selección (Dibujar).", "warn");
+        return;
+      }
+
+      const lyr = state.layers.find(l=>l.id===layerId);
+      if(!lyr) return;
+
+      clearSelection();
+      state.selection.layerId = layerId;
+
+      const ids = new Set();
+      (lyr.geojson.features||[]).forEach(f=>{
+        try{
+          if(turf.booleanIntersects(selectionGeoJSON, f)) ids.add(f.properties.__fid);
+        }catch(e){}
+      });
+
+      state.selection.ids = ids;
+      applySelectionStyle(layerId);
+
+      log(`Selección por dibujo: ${ids.size} features.`, "success");
+      openBottom();
+      switchBottomTab("tabSummary");
+      renderTable();
+      renderSummary();
+    }
+
+    function toggleBufferMode(){
+      const btn = document.getElementById("btnBufferMode");
+      state.bufferMode = !state.bufferMode;
+      btn.textContent = state.bufferMode ? "Desactivar" : "Activar";
+      log(state.bufferMode ? "Buffer mode ON: haz clic en un feature de la capa origen." : "Buffer mode OFF.");
+    }
+
+    function runBufferHint(){
+      state.bufferFromId = document.getElementById("selBufferFrom").value;
+      state.bufferAgainstId = document.getElementById("selBufferAgainst").value;
+
+      if(!state.bufferFromId || !state.bufferAgainstId){
+        log("Configura capa origen y capa a consultar (intersecta).", "warn");
+        return;
+      }
+      if(!state.bufferMode){
+        log("Activa Buffer Mode para usar clic en feature.", "warn");
+        return;
+      }
+      log("Listo: ahora haz clic en un feature de la capa origen para crear buffer.", "success");
+    }
+
+    function handleBufferClick(fromLayerId, feature){
+      const fromId = document.getElementById("selBufferFrom").value;
+      const againstId = document.getElementById("selBufferAgainst").value;
+      if(!fromId || !againstId) return;
+      if(fromLayerId !== fromId) return;
+
+      const dist = parseFloat(document.getElementById("inpBufferDist").value || "0");
+      const unit = document.getElementById("selBufferUnit").value;
+      const km = unit==="km" ? dist : dist/1000;
+
+      const againstLayer = state.layers.find(l=>l.id===againstId);
+      if(!againstLayer){
+        log("Capa a consultar no encontrada.", "error");
+        return;
+      }
+
+      let buf;
+      try{
+        buf = turf.buffer(feature, km, {units:"kilometers"});
+      }catch(e){
+        log("No se pudo crear buffer (geometría inválida).", "error");
+        return;
+      }
+
+      const selected = [];
+      (againstLayer.geojson.features||[]).forEach(f=>{
+        try{ if(turf.booleanIntersects(buf, f)) selected.push(f); }catch(e){}
+      });
+
+      const resultName = `ANALYSIS_Buffer_${againstLayer.name}`;
+      const analysisGeo = {
+        type:"FeatureCollection",
+        features:[
+          {
+            type:"Feature",
+            properties:{type:"buffer", dist, unit, source_fid: feature.properties?.__fid},
+            geometry: buf.geometry
+          }
+        ]
+      };
+
+      if(state.bufferLayerId){
+        removeLayer(state.bufferLayerId);
+        state.bufferLayerId = null;
+      }
+
+      addGeoJsonLayer(analysisGeo, resultName, {source:"Analysis"});
+      state.bufferLayerId = state.layers[0]?.id;
+
+      clearSelection();
+      state.selection.layerId = againstId;
+      state.selection.ids = new Set(selected.map(f=>f.properties.__fid));
+      applySelectionStyle(againstId);
+
+      state.analysis.last = {
+        type: "Buffer (clic)",
+        summary: `${selected.length} features intersectan buffer (${dist}${unit})`,
+        layerId: state.bufferLayerId,
+        layerName: resultName
+      };
+
+      log(`Buffer listo: ${selected.length} features intersectan.`, "success");
+      openBottom();
+      switchBottomTab("tabSummary");
+      document.getElementById("selTableLayer").value = againstId;
+      renderTable();
+      renderSummary();
+      refreshSelectors();
+      renderLayersPanel();
+    }
+
+    function runProximity(){
+      const fromId = document.getElementById("selProxFrom").value;
+      const toId = document.getElementById("selProxTo").value;
+      const dist = parseFloat(document.getElementById("inpProxDist").value || "0");
+      const unit = document.getElementById("selProxUnit").value;
+      const maxKm = unit==="km" ? dist : dist/1000;
+
+      if(!fromId || !toId){
+        log("Selecciona Capa A y Capa B.", "warn");
+        return;
+      }
+
+      const A = state.layers.find(l=>l.id===fromId);
+      const B = state.layers.find(l=>l.id===toId);
+      if(!A || !B){
+        log("Capa A o B no encontrada.", "error");
+        return;
+      }
+
+      const out = [];
+      let within = 0;
+
+      const bPts = (B.geojson.features||[]).map(f=>{
+        try{ return { f, c: turf.centroid(f) }; }catch(e){ return null; }
+      }).filter(Boolean);
+
+      (A.geojson.features||[]).forEach(f=>{
+        try{
+          const ca = turf.centroid(f);
+          let best = Infinity;
+          let bestId = null;
+
+          for(const bb of bPts){
+            const d = turf.distance(ca, bb.c, {units:"kilometers"});
+            if(d < best){ best = d; bestId = bb.f.properties?.__fid ?? null; }
+          }
+
+          const isWithin = best <= maxKm;
+          if(isWithin) within++;
+
+          const nf = JSON.parse(JSON.stringify(f));
+          nf.properties = nf.properties || {};
+          nf.properties.min_dist_m = Math.round(best*1000*100)/100;
+          nf.properties.nearest_b_fid = bestId;
+          nf.properties.within_threshold = isWithin ? 1 : 0;
+
+          if(isWithin) out.push(nf);
+        }catch(e){}
+      });
+
+      const resultName = `ANALYSIS_Proximity_${A.name}_to_${B.name}`;
+      addGeoJsonLayer({ type:"FeatureCollection", features: out }, resultName, {source:"Analysis"});
+
+      const analysisLayerId = state.layers[0]?.id;
+
+      clearSelection();
+      state.selection.layerId = fromId;
+      state.selection.ids = new Set(out.map(f=>f.properties.__fid));
+      applySelectionStyle(fromId);
+
+      state.analysis.last = {
+        type: "Proximidad (capa↔capa)",
+        summary: `${within} features en A dentro de ${dist}${unit} del nearest en B`,
+        layerId: analysisLayerId,
+        layerName: resultName
+      };
+
+      log(`Proximidad completada: ${within} features dentro del umbral.`, "success");
+      openBottom();
+      switchBottomTab("tabSummary");
+      document.getElementById("selTableLayer").value = fromId;
+      renderTable();
+      renderSummary();
+      refreshSelectors();
+      renderLayersPanel();
+    }
+
+    // =========================================================
+    // EXPORT
+    // =========================================================
+    function getExportLayer(){
+      const id = document.getElementById("selExportLayer").value;
+      if(!id) return null;
+      return state.layers.find(l=>l.id===id) || null;
+    }
+
+    function exportGeoJSON(){
+      const lyr = getExportLayer();
+      if(!lyr){ log("Selecciona una capa para exportar.", "warn"); return; }
+
+      const data = JSON.stringify(lyr.geojson, null, 2);
+      downloadBlob(data, safeFileName(lyr.name) + ".geojson", "application/json");
+      log(`Exportado GeoJSON: ${lyr.name}`, "success");
+    }
+
+    function exportKML(){
+      const lyr = getExportLayer();
+      if(!lyr){ log("Selecciona una capa para exportar.", "warn"); return; }
+      if(typeof tokml === "undefined"){ log("tokml no está disponible (revisa CDN).", "error"); return; }
+
+      const kml = tokml(lyr.geojson);
+      downloadBlob(kml, safeFileName(lyr.name) + ".kml", "application/vnd.google-earth.kml+xml");
+      log(`Exportado KML: ${lyr.name}`, "success");
+    }
+
+    async function exportKMZ(){
+      const lyr = getExportLayer();
+      if(!lyr){ log("Selecciona una capa para exportar.", "warn"); return; }
+      if(typeof tokml === "undefined"){ log("tokml no está disponible (revisa CDN).", "error"); return; }
+
+      const kml = tokml(lyr.geojson);
+      const zip = new JSZip();
+      zip.file("doc.kml", kml);
+      const kmz = await zip.generateAsync({type:"blob"});
+
+      downloadBlob(kmz, safeFileName(lyr.name) + ".kmz", "application/vnd.google-earth.kmz");
+      log(`Exportado KMZ: ${lyr.name}`, "success");
+    }
+
+    function downloadBlob(content, filename, mime){
+      const blob = content instanceof Blob ? content : new Blob([content], {type: mime});
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href), 3000);
+    }
+
+    function safeFileName(name){
+      return String(name || "georapid_export")
+        .replace(/\.[^/.]+$/, "")
+        .replace(/[^\w\-]+/g, "_")
+        .slice(0, 80);
+    }
+
+    // =========================================================
+    // RESET
+    // =========================================================
+    function resetAll(){
+      if(state.measureControl){
+        state.map.removeControl(state.measureControl);
+        state.measureControl = null;
+        document.getElementById("btnMeasure").textContent = "Activar";
+      }
+      if(state.drawEnabled){
+        disableDraw();
+        document.getElementById("btnSelectDraw").textContent = "Activar";
+      }
+
+      state.bufferMode = false;
+      document.getElementById("btnBufferMode").textContent = "Activar";
+
+      document.querySelectorAll(".panel").forEach(p=> p.classList.remove("open","collapsed"));
+      document.querySelectorAll(".sbtn[data-panel]").forEach(b=> b.classList.remove("active"));
+
+      const ids = state.layers.map(l=>l.id);
+      ids.forEach(id=> removeLayer(id));
+
+      clearSelection();
+      state.analysis.last = null;
+      state.logs = [];
+      renderLogs();
+
+      log("Sesión reiniciada.", "success");
+
+      refreshSelectors();
+      renderLayersPanel();
+      renderTable();
+      renderSummary();
+      updateUILayoutVars();
+      syncBottomFab();
+    }
+
+    // =========================================================
+    // EXAMPLE
+    // =========================================================
+    function loadExample(){
+      const fc = {
+        type:"FeatureCollection",
+        features:[
+          {type:"Feature", properties:{name:"Punto A", categoria:"Oficina"}, geometry:{type:"Point", coordinates:[-66.9036,10.4806]}},
+          {type:"Feature", properties:{name:"Punto B", categoria:"Almacén"}, geometry:{type:"Point", coordinates:[-66.85,10.4910]}},
+          {type:"Feature", properties:{name:"Punto C", categoria:"Tienda"}, geometry:{type:"Point", coordinates:[-66.95,10.50]}},
+          {type:"Feature", properties:{name:"Punto D", categoria:"Parque"}, geometry:{type:"Point", coordinates:[-66.82,10.4750]}}
+        ]
+      };
+
+      addGeoJsonLayer(fc, "ejemplo_points.geojson", {source:"Ejemplo"});
+      openBottom();
+      switchBottomTab("tabTable");
+      document.getElementById("selTableLayer").value = state.layers[0].id;
+      renderTable();
+      updateUILayoutVars();
+      syncBottomFab();
+    }
+
+    // =========================================================
+    // HELPERS
+    // =========================================================
+    function randomColor(){
+      const palette = ["#E7C10B","#4F9CF7","#22C55E","#A855F7","#F97316","#EF4444","#14B8A6","#F59E0B"];
+      return palette[Math.floor(Math.random()*palette.length)];
+    }
+
+    function buildPopupHtml(layerName, props){
+      props = props || {};
+      const keys = Object.keys(props).filter(k=>k!=="__fid").slice(0, 40);
+
+      let html = `<div style="max-height:220px; overflow:auto; font-size:12px;">`;
+      html += `<div style="font-weight:900; margin-bottom:6px; color:#E7C10B">${escapeHtml(layerName)}</div>`;
+      keys.forEach(k=>{
+        html += `<div><b>${escapeHtml(k)}:</b> ${escapeHtml(String(props[k] ?? ""))}</div>`;
+      });
+      html += `</div>`;
+      return html;
+    }
+
+    function escapeHtml(str){
+      return String(str)
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;")
+        .replaceAll("'","&#039;");
+    }
+  </script>
+</body>
+</html>
