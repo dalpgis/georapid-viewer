@@ -1,0 +1,2 @@
+# georapid-viewer
+GeoRapid es una herramienta web de DALPGIS para cargar y visualizar datos geoespaciales en segundos. Soporta GeoJSON, KML/KMZ, Shapefile ZIP, CSV y Excel; incluye selección por dibujo, medición, buffers y análisis de proximidad, con exportación a GeoJSON, KML y KMZ.
