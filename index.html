@@ -42,9 +42,9 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
   <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
 
-  <!-- Leaflet Measure -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet-measure/dist/leaflet-measure.css" />
-  <script src="https://unpkg.com/leaflet-measure/dist/leaflet-measure.js"></script>
+  <!-- Leaflet Measure (si funciona, se usa; si no, hay fallback interno ✅) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-measure@3.3.1/dist/leaflet-measure.css" />
+  <script src="https://unpkg.com/leaflet-measure@3.3.1/dist/leaflet-measure.js"></script>
 
   <style>
     :root{
@@ -449,6 +449,7 @@
       font-size: 12px;
       padding: 6px 0;
       border-bottom: 1px dashed rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.90) !important; /* ✅ logs blancos */
     }
     .logline b{ color: var(--dal-yellow); }
 
@@ -499,6 +500,54 @@
       box-shadow: 0 0 0 3px rgba(231,193,11,0.18);
     }
     .fab-show-bottom.show{ display:flex; }
+
+    /* ✅ Dropdowns: opciones con texto negro (para que no se vean “en blanco”) */
+    .select option{
+      color:#111 !important;
+      background:#fff !important;
+    }
+    .select optgroup{
+      color:#111 !important;
+      background:#fff !important;
+    }
+
+    /* ✅ Measure arriba */
+    .leaflet-control-measure,
+    .leaflet-measure-resultpopup{
+      z-index: 10030 !important;
+    }
+
+    /* ✅ Fallback measure control (si el plugin no aparece) */
+    .dal-measure-control{
+      z-index: 10035 !important;
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 12px 26px rgba(0,0,0,0.35);
+    }
+    .dal-measure-control a{
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      width: 34px;
+      height: 34px;
+      text-decoration:none;
+      background: rgba(20,20,20,0.88);
+      color:#fff;
+      border-bottom: 1px solid rgba(255,255,255,0.14);
+      font-weight: 900;
+      user-select:none;
+    }
+    .dal-measure-control a:hover{
+      background: rgba(231,193,11,0.25);
+    }
+    .dal-measure-control a.active{
+      background: rgba(231,193,11,0.28);
+      color:#fff;
+    }
+    .dal-measure-control a:last-child{
+      border-bottom: none;
+    }
   </style>
 </head>
 
@@ -603,7 +652,7 @@
             <b class="text-white">Medición</b>
             <button class="mini" id="btnMeasure">Activar</button>
           </div>
-          <div class="text-sm text-white/70">Activa/desactiva el control de medición (distancia/área).</div>
+          <div class="text-sm text-white/70">Activa/desactiva el widget de medición. Si el plugin no carga, usa un widget interno (fallback).</div>
         </div>
 
         <div class="p-4 rounded-2xl border border-white/10 bg-white/5 space-y-3">
@@ -639,7 +688,11 @@
                 <option value="km">km</option>
               </select>
             </div>
-            <button class="mini yellow" onclick="runBufferHint()">Listo (usa clic)</button>
+
+            <div class="flex gap-2">
+              <button class="mini yellow w-full" onclick="runBufferHint()">Listo (usa clic)</button>
+              <button class="mini w-full" onclick="clearBuffer()">Limpiar buffer</button>
+            </div>
           </div>
           <div class="text-xs text-white/60">
             Modo activo: haz clic en un feature de la capa origen para generar buffer y seleccionar intersectados.
@@ -867,13 +920,29 @@
       selection: { layerId: null, ids: new Set() },
       analysis: { last: null },
       logs: [],
-      measureControl: null,
+
+      // draw selection tool
       drawControl: null,
+      drawnItems: null,
       drawEnabled: false,
+      drawCreatedHandler: null,
+
+      // measure tool (plugin o fallback)
+      measureControl: null,
+      measureMode: null, // "plugin" | "fallback" | null
+      measureFallback: {
+        control: null,
+        group: null,
+        drawHandler: null,       // L.Draw.* actual
+        createdHandler: null,
+        activeType: null         // "line" | "area"
+      },
+
       bufferMode: false,
       bufferFromId: null,
       bufferAgainstId: null,
       bufferLayerId: null,
+
       panelZ: 10050
     };
 
@@ -924,11 +993,9 @@
 
       document.getElementById("btnSidebarToggle").addEventListener("click", toggleSidebar);
 
-      // ✅ FAB: mostrar tabla cuando está oculta
       document.getElementById("btnShowBottom").addEventListener("click", ()=>{
         openBottom();
         switchBottomTab("tabTable");
-        // por si estaba expandida antes, se mantiene igual
       });
 
       renderLogs();
@@ -944,7 +1011,7 @@
         syncBottomFab();
       });
 
-      log("Sistema iniciado. Sidebar derecha + sin solape con tabla + botón para reabrir tabla.", "success");
+      log("Sistema iniciado. Incluye medición con fallback si el plugin no muestra el widget.", "success");
     }
 
     function updateUILayoutVars(){
@@ -974,7 +1041,6 @@
       document.documentElement.style.setProperty("--bottom-panel-h", h + "px");
     }
 
-    // ✅ Muestra/oculta el FAB según estado del bottom panel
     function syncBottomFab(){
       const b = document.getElementById("bottomPanel");
       const fab = document.getElementById("btnShowBottom");
@@ -1220,6 +1286,38 @@
     }
 
     // =========================================================
+    // ✅ POPUP helpers: siempre visible
+    // =========================================================
+    function featureToLatLng(feature){
+      if(!feature || !feature.geometry) return null;
+      const g = feature.geometry;
+
+      if(g.type === "Point" && Array.isArray(g.coordinates)){
+        return L.latLng(g.coordinates[1], g.coordinates[0]);
+      }
+      try{
+        const c = turf.centroid(feature);
+        const [x,y] = c.geometry.coordinates;
+        return L.latLng(y,x);
+      }catch(e){
+        return null;
+      }
+    }
+
+    function openFeaturePopup(layerId, feature){
+      const lyr = state.layers.find(l=>l.id===layerId);
+      const layerName = lyr ? lyr.name : "Feature";
+      const latlng = featureToLatLng(feature);
+      if(!latlng) return;
+
+      const html = buildPopupHtml(layerName, feature.properties || {});
+      L.popup({ maxWidth: 420, autoPan: true })
+        .setLatLng(latlng)
+        .setContent(html)
+        .openOn(state.map);
+    }
+
+    // =========================================================
     // LAYERS CORE
     // =========================================================
     function addGeoJsonLayer(geojson, name, meta={}){
@@ -1230,7 +1328,6 @@
       state.map.createPane(pane);
       state.map.getPane(pane).style.zIndex = 400 + state.layers.length;
 
-      // ensure __fid
       let fidx = 0;
       geojson.features = (geojson.features || []).map(f=>{
         const nf = JSON.parse(JSON.stringify(f));
@@ -1255,7 +1352,7 @@
               handleBufferClick(id, f);
               return;
             }
-            layer.bindPopup(buildPopupHtml(name, f.properties)).openPopup();
+            openFeaturePopup(id, f);
             toggleFeatureSelection(id, f);
           });
         }
@@ -1710,6 +1807,8 @@
       applySelectionStyle(layerId);
       renderTable();
       renderSummary();
+
+      openFeaturePopup(layerId, feature);
     }
 
     function applySelectionStyle(layerId){
@@ -1835,6 +1934,8 @@
       renderTable();
       renderSummary();
 
+      openFeaturePopup(layerId, f);
+
       try{
         const tmp = L.geoJSON({type:"FeatureCollection", features:[f]});
         const b = tmp.getBounds();
@@ -1879,30 +1980,278 @@
     }
 
     // =========================================================
-    // TOOLS: measure / draw selection / buffer / proximity
+    // ✅ MEDICIÓN: plugin si aparece, si no, fallback con Leaflet.Draw
     // =========================================================
     function toggleMeasure(){
       const btn = document.getElementById("btnMeasure");
-      if(state.measureControl){
-        state.map.removeControl(state.measureControl);
-        state.measureControl = null;
+
+      // si ya está activa => apagar
+      if(state.measureMode){
+        deactivateMeasure();
         btn.textContent = "Activar";
-        log("Medición desactivada.");
-      }else{
-        state.measureControl = new L.Control.Measure({
-          primaryLengthUnit: "meters",
-          secondaryLengthUnit: "kilometers",
-          primaryAreaUnit: "sqmeters",
-          secondaryAreaUnit: "hectares"
+        log("Medición desactivada.", "info");
+        return;
+      }
+
+      // evita conflictos: si selección por dibujo está activa, la apaga
+      if(state.drawEnabled){
+        disableDraw();
+        document.getElementById("btnSelectDraw").textContent = "Activar";
+      }
+
+      // intenta plugin
+      tryActivateMeasurePlugin()
+        .then((ok)=>{
+          if(ok){
+            state.measureMode = "plugin";
+            btn.textContent = "Desactivar";
+            log("Medición activada (Leaflet-Measure).", "success");
+          }else{
+            activateMeasureFallback();
+            state.measureMode = "fallback";
+            btn.textContent = "Desactivar";
+            log("Medición activada (fallback interno).", "success");
+          }
+        })
+        .catch(()=>{
+          activateMeasureFallback();
+          state.measureMode = "fallback";
+          btn.textContent = "Desactivar";
+          log("Medición activada (fallback interno).", "success");
         });
-        state.measureControl.addTo(state.map);
-        btn.textContent = "Desactivar";
-        log("Medición activada.", "success");
+    }
+
+    function deactivateMeasure(){
+      // plugin
+      if(state.measureControl){
+        try{ state.map.removeControl(state.measureControl); }catch(e){}
+        state.measureControl = null;
+      }
+
+      // fallback
+      deactivateMeasureFallback();
+
+      state.measureMode = null;
+      state.map.closePopup();
+    }
+
+    async function tryActivateMeasurePlugin(){
+      const opts = {
+        position: "topleft",
+        primaryLengthUnit: "meters",
+        secondaryLengthUnit: "kilometers",
+        primaryAreaUnit: "sqmeters",
+        secondaryAreaUnit: "hectares"
+      };
+
+      try{
+        // algunos builds: L.control.measure(...)
+        if(L.control && typeof L.control.measure === "function"){
+          state.measureControl = L.control.measure(opts).addTo(state.map);
+        }
+        // otros builds: new L.Control.Measure(...)
+        else if(typeof L.Control?.Measure === "function"){
+          state.measureControl = new L.Control.Measure(opts);
+          state.measureControl.addTo(state.map);
+        } else {
+          return false;
+        }
+
+        // espera breve y valida que el DOM exista
+        await new Promise(r=>setTimeout(r, 80));
+        const domOk = !!document.querySelector(".leaflet-control-measure");
+        if(!domOk){
+          // no se renderizó => quitamos control y fallback
+          try{ state.map.removeControl(state.measureControl); }catch(e){}
+          state.measureControl = null;
+          return false;
+        }
+        return true;
+      }catch(e){
+        try{ if(state.measureControl) state.map.removeControl(state.measureControl); }catch(_){}
+        state.measureControl = null;
+        return false;
       }
     }
 
+    function activateMeasureFallback(){
+      if(state.measureFallback.group == null){
+        state.measureFallback.group = L.featureGroup().addTo(state.map);
+      }
+
+      if(!state.measureFallback.control){
+        state.measureFallback.control = new (L.Control.extend({
+          options: { position: "topleft" },
+          onAdd: function(){
+            const container = L.DomUtil.create("div", "leaflet-bar dal-measure-control");
+            container.title = "Medición (fallback)";
+
+            const aLine = L.DomUtil.create("a", "", container);
+            aLine.href = "#";
+            aLine.title = "Medir distancia";
+            aLine.innerHTML = "📏";
+
+            const aArea = L.DomUtil.create("a", "", container);
+            aArea.href = "#";
+            aArea.title = "Medir área";
+            aArea.innerHTML = "▱";
+
+            const aClear = L.DomUtil.create("a", "", container);
+            aClear.href = "#";
+            aClear.title = "Limpiar mediciones";
+            aClear.innerHTML = "✕";
+
+            L.DomEvent.disableClickPropagation(container);
+            L.DomEvent.disableScrollPropagation(container);
+
+            L.DomEvent.on(aLine, "click", L.DomEvent.stop)
+              .on(aLine, "click", ()=>{
+                setFallbackBtnActive(container, 0);
+                startMeasureFallback("line");
+              });
+
+            L.DomEvent.on(aArea, "click", L.DomEvent.stop)
+              .on(aArea, "click", ()=>{
+                setFallbackBtnActive(container, 1);
+                startMeasureFallback("area");
+              });
+
+            L.DomEvent.on(aClear, "click", L.DomEvent.stop)
+              .on(aClear, "click", ()=>{
+                setFallbackBtnActive(container, -1);
+                clearMeasureFallback();
+              });
+
+            return container;
+          }
+        }))();
+
+        state.measureFallback.control.addTo(state.map);
+      }
+
+      // handler CREATED (solo una vez)
+      if(!state.measureFallback.createdHandler){
+        state.measureFallback.createdHandler = (e)=>{
+          // solo procesa si el fallback está activo (measureMode)
+          if(state.measureMode !== "fallback") return;
+          if(!state.measureFallback.group) return;
+
+          state.measureFallback.group.addLayer(e.layer);
+
+          const gj = e.layer.toGeoJSON();
+
+          // distancia
+          if(gj.geometry?.type === "LineString"){
+            const km = turf.length(gj, {units:"kilometers"});
+            const m = km * 1000;
+            const label = (m >= 1000) ? `${km.toFixed(2)} km` : `${Math.round(m)} m`;
+            const coords = gj.geometry.coordinates;
+            const last = coords[coords.length - 1];
+            L.popup({maxWidth: 280})
+              .setLatLng([last[1], last[0]])
+              .setContent(`<b>Distancia:</b> ${label}`)
+              .openOn(state.map);
+          }
+
+          // área
+          if(gj.geometry?.type === "Polygon" || gj.geometry?.type === "MultiPolygon"){
+            const areaM2 = turf.area(gj);
+            const areaHa = areaM2 / 10000;
+            const areaKm2 = areaM2 / 1e6;
+            const label = (areaM2 >= 1e6)
+              ? `${areaKm2.toFixed(3)} km²`
+              : `${areaHa.toFixed(2)} ha`;
+            const c = turf.centroid(gj).geometry.coordinates;
+            L.popup({maxWidth: 280})
+              .setLatLng([c[1], c[0]])
+              .setContent(`<b>Área:</b> ${label}`)
+              .openOn(state.map);
+          }
+        };
+        state.map.on(L.Draw.Event.CREATED, state.measureFallback.createdHandler);
+      }
+
+      // inicia modo distancia por defecto
+      startMeasureFallback("line");
+    }
+
+    function deactivateMeasureFallback(){
+      // deshabilita handler de dibujo actual
+      if(state.measureFallback.drawHandler){
+        try{ state.measureFallback.drawHandler.disable(); }catch(e){}
+        state.measureFallback.drawHandler = null;
+      }
+
+      // quita CREATED handler
+      if(state.measureFallback.createdHandler){
+        try{ state.map.off(L.Draw.Event.CREATED, state.measureFallback.createdHandler); }catch(e){}
+        state.measureFallback.createdHandler = null;
+      }
+
+      // quita control
+      if(state.measureFallback.control){
+        try{ state.map.removeControl(state.measureFallback.control); }catch(e){}
+        state.measureFallback.control = null;
+      }
+
+      // borra layers
+      if(state.measureFallback.group){
+        try{ state.map.removeLayer(state.measureFallback.group); }catch(e){}
+        state.measureFallback.group = null;
+      }
+
+      state.measureFallback.activeType = null;
+    }
+
+    function setFallbackBtnActive(container, idx){
+      const links = container.querySelectorAll("a");
+      links.forEach(a=>a.classList.remove("active"));
+      if(idx >= 0 && links[idx]) links[idx].classList.add("active");
+    }
+
+    function startMeasureFallback(type){
+      // cancela draw anterior
+      if(state.measureFallback.drawHandler){
+        try{ state.measureFallback.drawHandler.disable(); }catch(e){}
+        state.measureFallback.drawHandler = null;
+      }
+
+      state.measureFallback.activeType = type;
+
+      if(type === "line"){
+        state.measureFallback.drawHandler = new L.Draw.Polyline(state.map, {
+          shapeOptions: { color: "#E7C10B", weight: 3, opacity: 0.95 },
+          guidelineDistance: 10
+        });
+      } else {
+        state.measureFallback.drawHandler = new L.Draw.Polygon(state.map, {
+          shapeOptions: { color: "#E7C10B", weight: 3, opacity: 0.95, fillOpacity: 0.15 },
+          showArea: true
+        });
+      }
+
+      state.measureFallback.drawHandler.enable();
+      log(type === "line" ? "Medición (fallback): clic para trazar línea, doble clic para terminar." : "Área (fallback): clic para dibujar polígono, clic en primer punto para cerrar.", "info");
+    }
+
+    function clearMeasureFallback(){
+      if(state.measureFallback.group) state.measureFallback.group.clearLayers();
+      state.map.closePopup();
+      log("Medición (fallback): capas de medición limpiadas.", "success");
+    }
+
+    // =========================================================
+    // TOOLS: draw selection / buffer / proximity
+    // =========================================================
     function toggleDrawSelection(){
       const btn = document.getElementById("btnSelectDraw");
+
+      // evita conflictos: si medición está activa, la apaga
+      if(state.measureMode){
+        deactivateMeasure();
+        document.getElementById("btnMeasure").textContent = "Activar";
+      }
+
       if(state.drawEnabled){
         disableDraw();
         btn.textContent = "Activar";
@@ -1917,8 +2266,8 @@
     function enableDraw(){
       if(state.drawControl) return;
 
-      const drawnItems = new L.FeatureGroup();
-      state.map.addLayer(drawnItems);
+      state.drawnItems = new L.FeatureGroup();
+      state.map.addLayer(state.drawnItems);
 
       state.drawControl = new L.Control.Draw({
         position: "topleft",
@@ -1930,24 +2279,35 @@
           polyline: false,
           circlemarker: false
         },
-        edit: { featureGroup: drawnItems, edit:false, remove:true }
+        edit: { featureGroup: state.drawnItems, edit:false, remove:true }
       });
 
       state.map.addControl(state.drawControl);
 
-      state.map.on(L.Draw.Event.CREATED, (e)=>{
-        drawnItems.clearLayers();
-        drawnItems.addLayer(e.layer);
+      // ✅ handler guardado para poder removerlo después
+      state.drawCreatedHandler = (e)=>{
+        state.drawnItems.clearLayers();
+        state.drawnItems.addLayer(e.layer);
         runSpatialSelect(e.layer.toGeoJSON());
-      });
+      };
 
+      state.map.on(L.Draw.Event.CREATED, state.drawCreatedHandler);
       state.drawEnabled = true;
     }
 
     function disableDraw(){
-      if(!state.drawControl) return;
-      state.map.removeControl(state.drawControl);
-      state.drawControl = null;
+      if(state.drawControl){
+        state.map.removeControl(state.drawControl);
+        state.drawControl = null;
+      }
+      if(state.drawCreatedHandler){
+        state.map.off(L.Draw.Event.CREATED, state.drawCreatedHandler);
+        state.drawCreatedHandler = null;
+      }
+      if(state.drawnItems){
+        state.map.removeLayer(state.drawnItems);
+        state.drawnItems = null;
+      }
       state.drawEnabled = false;
     }
 
@@ -1973,6 +2333,9 @@
 
       state.selection.ids = ids;
       applySelectionStyle(layerId);
+
+      const firstSel = (lyr.geojson.features||[]).find(ff => ids.has(ff.properties?.__fid));
+      if(firstSel) openFeaturePopup(layerId, firstSel);
 
       log(`Selección por dibujo: ${ids.size} features.`, "success");
       openBottom();
@@ -2008,6 +2371,8 @@
       const againstId = document.getElementById("selBufferAgainst").value;
       if(!fromId || !againstId) return;
       if(fromLayerId !== fromId) return;
+
+      openFeaturePopup(fromLayerId, feature);
 
       const dist = parseFloat(document.getElementById("inpBufferDist").value || "0");
       const unit = document.getElementById("selBufferUnit").value;
@@ -2072,6 +2437,27 @@
       renderSummary();
       refreshSelectors();
       renderLayersPanel();
+    }
+
+    function clearBuffer(){
+      if(state.bufferLayerId){
+        const id = state.bufferLayerId;
+        state.bufferLayerId = null;
+        removeLayer(id);
+      }
+
+      if(state.analysis.last && String(state.analysis.last.type || "").toLowerCase().includes("buffer")){
+        state.analysis.last = null;
+      }
+
+      clearSelection();
+      state.map.closePopup();
+
+      renderSummary();
+      refreshSelectors();
+      renderLayersPanel();
+
+      log("Buffer eliminado (capa + selección limpiadas).", "success");
     }
 
     function runProximity(){
@@ -2213,11 +2599,13 @@
     // RESET
     // =========================================================
     function resetAll(){
-      if(state.measureControl){
-        state.map.removeControl(state.measureControl);
-        state.measureControl = null;
+      // medición
+      if(state.measureMode){
+        deactivateMeasure();
         document.getElementById("btnMeasure").textContent = "Activar";
       }
+
+      // selección por dibujo
       if(state.drawEnabled){
         disableDraw();
         document.getElementById("btnSelectDraw").textContent = "Activar";
@@ -2236,6 +2624,9 @@
       state.analysis.last = null;
       state.logs = [];
       renderLogs();
+
+      state.bufferLayerId = null;
+      state.map.closePopup();
 
       log("Sesión reiniciada.", "success");
 
