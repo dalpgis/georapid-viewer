@@ -32,8 +32,9 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://unpkg.com/shpjs@latest/dist/shp.min.js"></script>
 
-  <!-- KML import -->
-  <script src="https://unpkg.com/@tmcw/togeojson@0.16.0/dist/togeojson.umd.js"></script>
+  <!-- ✅ KML import (global toGeoJSON) -->
+  <!-- Nota: antes tenías @tmcw/togeojson@0.16.0 (esa versión NO existe). Usamos el paquete clásico 'togeojson@0.16.0' que sí expone window.toGeoJSON -->
+  <script src="https://unpkg.com/togeojson@0.16.0/togeojson.js"></script>
 
   <!-- Export KML -->
   <script src="https://unpkg.com/tokml@0.4.0/tokml.js"></script>
@@ -42,7 +43,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
   <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
 
-  <!-- Leaflet Measure (si funciona, se usa; si no, hay fallback interno ✅) -->
+  <!-- Leaflet Measure (si funciona, se usa; si no, fallback interno ✅) -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet-measure@3.3.1/dist/leaflet-measure.css" />
   <script src="https://unpkg.com/leaflet-measure@3.3.1/dist/leaflet-measure.js"></script>
 
@@ -449,7 +450,7 @@
       font-size: 12px;
       padding: 6px 0;
       border-bottom: 1px dashed rgba(255,255,255,0.08);
-      color: rgba(255,255,255,0.90) !important; /* ✅ logs blancos */
+      color: rgba(255,255,255,0.90) !important;
     }
     .logline b{ color: var(--dal-yellow); }
 
@@ -501,7 +502,7 @@
     }
     .fab-show-bottom.show{ display:flex; }
 
-    /* ✅ Dropdowns: opciones con texto negro (para que no se vean “en blanco”) */
+    /* ✅ Dropdowns: opciones con texto negro */
     .select option{
       color:#111 !important;
       background:#fff !important;
@@ -517,7 +518,7 @@
       z-index: 10030 !important;
     }
 
-    /* ✅ Fallback measure control (si el plugin no aparece) */
+    /* ✅ Fallback measure control */
     .dal-measure-control{
       z-index: 10035 !important;
       border: 1px solid rgba(255,255,255,0.18);
@@ -933,9 +934,9 @@
       measureFallback: {
         control: null,
         group: null,
-        drawHandler: null,       // L.Draw.* actual
+        drawHandler: null,
         createdHandler: null,
-        activeType: null         // "line" | "area"
+        activeType: null
       },
 
       bufferMode: false,
@@ -1011,7 +1012,14 @@
         syncBottomFab();
       });
 
-      log("Sistema iniciado. Incluye medición con fallback si el plugin no muestra el widget.", "success");
+      // ✅ validación rápida de toGeoJSON (KML)
+      if(typeof toGeoJSON === "undefined"){
+        log("KML/KMZ: toGeoJSON NO está disponible. Revisa si el CDN de 'togeojson' está cargando.", "error");
+      } else {
+        log("KML/KMZ listo: toGeoJSON disponible.", "success");
+      }
+
+      log("Sistema iniciado. KML/KMZ soportados (KML directo + KMZ/ZIP con KML).", "success");
     }
 
     function updateUILayoutVars(){
@@ -1544,7 +1552,7 @@
     }
 
     // =========================================================
-    // FILE LOADING
+    // ✅ FILE LOADING (KML/KMZ robusto + encoding smart)
     // =========================================================
     async function handleFiles(e){
       const files = Array.from(e.target.files || []);
@@ -1561,11 +1569,64 @@
       e.target.value = "";
     }
 
+    function looksLikeZip(buffer){
+      const u8 = new Uint8Array(buffer);
+      return u8.length >= 2 && u8[0] === 0x50 && u8[1] === 0x4B; // 'PK'
+    }
+
+    // ✅ Detecta BOM y decodifica (soluciona KML UTF-16 / con BOM raro)
+    function decodeTextBytes(u8){
+      if(!u8 || !u8.length) return "";
+      // BOM
+      if(u8.length >= 2 && u8[0] === 0xFF && u8[1] === 0xFE){
+        try{
+          return new TextDecoder("utf-16le").decode(u8);
+        }catch(e){
+          return new TextDecoder("utf-8").decode(u8);
+        }
+      }
+      if(u8.length >= 2 && u8[0] === 0xFE && u8[1] === 0xFF){
+        // utf-16be -> swap
+        const swapped = new Uint8Array(u8.length);
+        for(let i=0; i<u8.length; i+=2){
+          swapped[i] = u8[i+1];
+          swapped[i+1] = u8[i];
+        }
+        try{
+          return new TextDecoder("utf-16le").decode(swapped);
+        }catch(e){
+          return new TextDecoder("utf-8").decode(u8);
+        }
+      }
+      if(u8.length >= 3 && u8[0] === 0xEF && u8[1] === 0xBB && u8[2] === 0xBF){
+        try{ return new TextDecoder("utf-8").decode(u8); }catch(e){}
+      }
+
+      // default utf-8 con heurística (si hay muchos \u0000, probamos utf-16le)
+      let txt = "";
+      try{ txt = new TextDecoder("utf-8").decode(u8); }catch(e){ txt = ""; }
+      const nulCount = (txt.match(/\u0000/g) || []).length;
+      if(nulCount > 0){
+        try{
+          const t2 = new TextDecoder("utf-16le").decode(u8);
+          if((t2.match(/<kml/i) || []).length > 0) return t2;
+        }catch(e){}
+      }
+      return txt;
+    }
+
+    async function readTextSmart(file){
+      const buf = await file.arrayBuffer();
+      return decodeTextBytes(new Uint8Array(buf));
+    }
+
     async function loadFile(file){
       const name = file.name;
       const lower = name.toLowerCase();
+      const mime = (file.type || "").toLowerCase();
       log(`Leyendo archivo: ${name}...`);
 
+      // ✅ GeoJSON/JSON
       if(lower.endsWith(".geojson") || (lower.endsWith(".json") && !lower.endsWith(".arcgis.json"))){
         const text = await file.text();
         const json = JSON.parse(text);
@@ -1574,34 +1635,41 @@
         return;
       }
 
-      if(lower.endsWith(".kml")){
-        const text = await file.text();
+      // ✅ KML (por extensión o MIME)
+      if(lower.endsWith(".kml") || mime.includes("kml")){
+        const text = await readTextSmart(file);
         const geo = kmlToGeoJSON(text);
         addGeoJsonLayer(geo, name, {source:"KML"});
-        return;
-      }
 
-      if(lower.endsWith(".kmz") || lower.endsWith(".zip")){
-        const buf = await file.arrayBuffer();
-        const zip = await JSZip.loadAsync(buf);
-
-        const kmlFile = Object.keys(zip.files).find(p=>p.toLowerCase().endsWith(".kml"));
-        if(kmlFile){
-          const kmlText = await zip.files[kmlFile].async("text");
-          const geo = kmlToGeoJSON(kmlText);
-          addGeoJsonLayer(geo, name, {source:"KMZ"});
-          return;
+        if(!(geo.features || []).length){
+          log("KML cargó pero devolvió 0 features. Puede ser GroundOverlay/NetworkLink u objetos sin geometría.", "warn");
         }
-
-        const geo = await shp(buf);
-        const fc = Array.isArray(geo)
-          ? { type:"FeatureCollection", features: geo.flatMap(g=>g.features||[]) }
-          : geo;
-
-        addGeoJsonLayer(fc, name, {source:"Shapefile ZIP"});
         return;
       }
 
+      // ✅ KMZ (por extensión o MIME)
+      if(lower.endsWith(".kmz") || mime.includes("kmz")){
+        const buf = await file.arrayBuffer();
+        if(!looksLikeZip(buf)){
+          throw new Error("KMZ inválido (no parece ZIP).");
+        }
+        const ok = await loadZipKmlOrShp(buf, name, "KMZ");
+        if(!ok) throw new Error("KMZ no contiene KML y tampoco es Shapefile ZIP.");
+        return;
+      }
+
+      // ✅ ZIP: puede ser KMZ “mal nombrado” o Shapefile
+      if(lower.endsWith(".zip")){
+        const buf = await file.arrayBuffer();
+        if(!looksLikeZip(buf)){
+          throw new Error("ZIP inválido (no parece ZIP).");
+        }
+        const ok = await loadZipKmlOrShp(buf, name, "ZIP");
+        if(!ok) throw new Error("ZIP no contiene KML/KMZ ni Shapefile válido.");
+        return;
+      }
+
+      // ✅ CSV
       if(lower.endsWith(".csv")){
         const text = await file.text();
         const parsed = await parseCSV(text);
@@ -1609,6 +1677,7 @@
         return;
       }
 
+      // ✅ Excel
       if(lower.endsWith(".xlsx") || lower.endsWith(".xls")){
         const buf = await file.arrayBuffer();
         const {rows, headers} = parseExcel(buf);
@@ -1616,10 +1685,56 @@
         return;
       }
 
+      // ✅ fallback JSON auto
       const text = await file.text();
       const json = JSON.parse(text);
       const geo = normalizeAnyToGeoJSON(json);
       addGeoJsonLayer(geo, name, {source:"Auto JSON"});
+    }
+
+    async function loadZipKmlOrShp(buffer, name, tag){
+      // 1) intenta KML dentro del ZIP (KMZ típico)
+      try{
+        const zip = await JSZip.loadAsync(buffer);
+        const paths = Object.keys(zip.files || {});
+        const kmlPath =
+          paths.find(p=>p.toLowerCase() === "doc.kml") ||
+          paths.find(p=>p.toLowerCase().endsWith(".kml"));
+
+        if(kmlPath){
+          // ✅ usa bytes para soportar UTF-16 dentro del zip
+          const u8 = await zip.files[kmlPath].async("uint8array");
+          const kmlText = decodeTextBytes(u8);
+          const geo = kmlToGeoJSON(kmlText);
+
+          // nombre más amigable
+          const outName = name.replace(/\.kmz$/i, ".kml").replace(/\.zip$/i, ".kml");
+          addGeoJsonLayer(geo, outName, {source: tag, inner: kmlPath});
+          log(`${tag}: KML encontrado (${kmlPath}).`, "success");
+
+          if(!(geo.features || []).length){
+            log(`${tag}: KML convertido pero devolvió 0 features. Revisa contenido (GroundOverlays/NetworkLinks).`, "warn");
+          }
+          return true;
+        }
+      }catch(e){
+        // si no se pudo leer como zip, cae a shp abajo
+      }
+
+      // 2) intenta Shapefile ZIP
+      try{
+        const geo = await shp(buffer);
+        const fc = Array.isArray(geo)
+          ? { type:"FeatureCollection", features: geo.flatMap(g=>g.features||[]) }
+          : geo;
+
+        addGeoJsonLayer(fc, name, {source:`${tag} (SHP)`});
+        log(`${tag}: Shapefile ZIP cargado.`, "success");
+        return true;
+      }catch(e){
+        log(`${tag}: no se detectó KML y shp falló (${e.message}).`, "warn");
+        return false;
+      }
     }
 
     function normalizeAnyToGeoJSON(json){
@@ -1671,8 +1786,25 @@
       return [lon, lat];
     }
 
+    function cleanKmlText(txt){
+      // quita BOM + caracteres raros nulos
+      return String(txt || "").replace(/^\uFEFF/, "").replace(/\u0000/g, "");
+    }
+
     function kmlToGeoJSON(kmlText){
-      const dom = new DOMParser().parseFromString(kmlText, "text/xml");
+      if(typeof toGeoJSON === "undefined"){
+        throw new Error("toGeoJSON no está cargado (KML/KMZ).");
+      }
+
+      const cleaned = cleanKmlText(kmlText);
+      const dom = new DOMParser().parseFromString(cleaned, "text/xml");
+
+      // detecta parsererror
+      const pe = dom.getElementsByTagName("parsererror");
+      if(pe && pe.length){
+        throw new Error("KML inválido (error parseando XML).");
+      }
+
       const gj = toGeoJSON.kml(dom);
       return { type:"FeatureCollection", features: gj.features || [] };
     }
@@ -1980,12 +2112,11 @@
     }
 
     // =========================================================
-    // ✅ MEDICIÓN: plugin si aparece, si no, fallback con Leaflet.Draw
+    // ✅ MEDICIÓN (plugin/fallback) - se mantiene igual
     // =========================================================
     function toggleMeasure(){
       const btn = document.getElementById("btnMeasure");
 
-      // si ya está activa => apagar
       if(state.measureMode){
         deactivateMeasure();
         btn.textContent = "Activar";
@@ -1993,13 +2124,11 @@
         return;
       }
 
-      // evita conflictos: si selección por dibujo está activa, la apaga
       if(state.drawEnabled){
         disableDraw();
         document.getElementById("btnSelectDraw").textContent = "Activar";
       }
 
-      // intenta plugin
       tryActivateMeasurePlugin()
         .then((ok)=>{
           if(ok){
@@ -2022,15 +2151,11 @@
     }
 
     function deactivateMeasure(){
-      // plugin
       if(state.measureControl){
         try{ state.map.removeControl(state.measureControl); }catch(e){}
         state.measureControl = null;
       }
-
-      // fallback
       deactivateMeasureFallback();
-
       state.measureMode = null;
       state.map.closePopup();
     }
@@ -2045,23 +2170,18 @@
       };
 
       try{
-        // algunos builds: L.control.measure(...)
         if(L.control && typeof L.control.measure === "function"){
           state.measureControl = L.control.measure(opts).addTo(state.map);
-        }
-        // otros builds: new L.Control.Measure(...)
-        else if(typeof L.Control?.Measure === "function"){
+        } else if(typeof L.Control?.Measure === "function"){
           state.measureControl = new L.Control.Measure(opts);
           state.measureControl.addTo(state.map);
         } else {
           return false;
         }
 
-        // espera breve y valida que el DOM exista
         await new Promise(r=>setTimeout(r, 80));
         const domOk = !!document.querySelector(".leaflet-control-measure");
         if(!domOk){
-          // no se renderizó => quitamos control y fallback
           try{ state.map.removeControl(state.measureControl); }catch(e){}
           state.measureControl = null;
           return false;
@@ -2084,7 +2204,6 @@
           options: { position: "topleft" },
           onAdd: function(){
             const container = L.DomUtil.create("div", "leaflet-bar dal-measure-control");
-            container.title = "Medición (fallback)";
 
             const aLine = L.DomUtil.create("a", "", container);
             aLine.href = "#";
@@ -2104,23 +2223,20 @@
             L.DomEvent.disableClickPropagation(container);
             L.DomEvent.disableScrollPropagation(container);
 
-            L.DomEvent.on(aLine, "click", L.DomEvent.stop)
-              .on(aLine, "click", ()=>{
-                setFallbackBtnActive(container, 0);
-                startMeasureFallback("line");
-              });
+            L.DomEvent.on(aLine, "click", L.DomEvent.stop).on(aLine, "click", ()=>{
+              setFallbackBtnActive(container, 0);
+              startMeasureFallback("line");
+            });
 
-            L.DomEvent.on(aArea, "click", L.DomEvent.stop)
-              .on(aArea, "click", ()=>{
-                setFallbackBtnActive(container, 1);
-                startMeasureFallback("area");
-              });
+            L.DomEvent.on(aArea, "click", L.DomEvent.stop).on(aArea, "click", ()=>{
+              setFallbackBtnActive(container, 1);
+              startMeasureFallback("area");
+            });
 
-            L.DomEvent.on(aClear, "click", L.DomEvent.stop)
-              .on(aClear, "click", ()=>{
-                setFallbackBtnActive(container, -1);
-                clearMeasureFallback();
-              });
+            L.DomEvent.on(aClear, "click", L.DomEvent.stop).on(aClear, "click", ()=>{
+              setFallbackBtnActive(container, -1);
+              clearMeasureFallback();
+            });
 
             return container;
           }
@@ -2129,10 +2245,8 @@
         state.measureFallback.control.addTo(state.map);
       }
 
-      // handler CREATED (solo una vez)
       if(!state.measureFallback.createdHandler){
         state.measureFallback.createdHandler = (e)=>{
-          // solo procesa si el fallback está activo (measureMode)
           if(state.measureMode !== "fallback") return;
           if(!state.measureFallback.group) return;
 
@@ -2140,7 +2254,6 @@
 
           const gj = e.layer.toGeoJSON();
 
-          // distancia
           if(gj.geometry?.type === "LineString"){
             const km = turf.length(gj, {units:"kilometers"});
             const m = km * 1000;
@@ -2153,7 +2266,6 @@
               .openOn(state.map);
           }
 
-          // área
           if(gj.geometry?.type === "Polygon" || gj.geometry?.type === "MultiPolygon"){
             const areaM2 = turf.area(gj);
             const areaHa = areaM2 / 10000;
@@ -2171,35 +2283,26 @@
         state.map.on(L.Draw.Event.CREATED, state.measureFallback.createdHandler);
       }
 
-      // inicia modo distancia por defecto
       startMeasureFallback("line");
     }
 
     function deactivateMeasureFallback(){
-      // deshabilita handler de dibujo actual
       if(state.measureFallback.drawHandler){
         try{ state.measureFallback.drawHandler.disable(); }catch(e){}
         state.measureFallback.drawHandler = null;
       }
-
-      // quita CREATED handler
       if(state.measureFallback.createdHandler){
         try{ state.map.off(L.Draw.Event.CREATED, state.measureFallback.createdHandler); }catch(e){}
         state.measureFallback.createdHandler = null;
       }
-
-      // quita control
       if(state.measureFallback.control){
         try{ state.map.removeControl(state.measureFallback.control); }catch(e){}
         state.measureFallback.control = null;
       }
-
-      // borra layers
       if(state.measureFallback.group){
         try{ state.map.removeLayer(state.measureFallback.group); }catch(e){}
         state.measureFallback.group = null;
       }
-
       state.measureFallback.activeType = null;
     }
 
@@ -2210,7 +2313,6 @@
     }
 
     function startMeasureFallback(type){
-      // cancela draw anterior
       if(state.measureFallback.drawHandler){
         try{ state.measureFallback.drawHandler.disable(); }catch(e){}
         state.measureFallback.drawHandler = null;
@@ -2231,7 +2333,6 @@
       }
 
       state.measureFallback.drawHandler.enable();
-      log(type === "line" ? "Medición (fallback): clic para trazar línea, doble clic para terminar." : "Área (fallback): clic para dibujar polígono, clic en primer punto para cerrar.", "info");
     }
 
     function clearMeasureFallback(){
@@ -2246,7 +2347,6 @@
     function toggleDrawSelection(){
       const btn = document.getElementById("btnSelectDraw");
 
-      // evita conflictos: si medición está activa, la apaga
       if(state.measureMode){
         deactivateMeasure();
         document.getElementById("btnMeasure").textContent = "Activar";
@@ -2284,7 +2384,6 @@
 
       state.map.addControl(state.drawControl);
 
-      // ✅ handler guardado para poder removerlo después
       state.drawCreatedHandler = (e)=>{
         state.drawnItems.clearLayers();
         state.drawnItems.addLayer(e.layer);
@@ -2599,13 +2698,11 @@
     // RESET
     // =========================================================
     function resetAll(){
-      // medición
       if(state.measureMode){
         deactivateMeasure();
         document.getElementById("btnMeasure").textContent = "Activar";
       }
 
-      // selección por dibujo
       if(state.drawEnabled){
         disableDraw();
         document.getElementById("btnSelectDraw").textContent = "Activar";
